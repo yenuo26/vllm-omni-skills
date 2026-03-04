@@ -19,6 +19,7 @@ A collection of AI assistant skills for [vLLM-Omni](https://github.com/vllm-proj
 | [vllm-omni-quantization](skills/vllm-omni-quantization/) | Quantization (AWQ, GPTQ, FP8), memory reduction, quality verification |
 | [vllm-omni-contrib](skills/vllm-omni-contrib/) | Contributing new models and development workflow |
 | [vllm-omni-cicd](skills/vllm-omni-cicd/) | CI/CD pipelines for model deployments |
+| [vllm-omni-review](skills/vllm-omni-review/) | PR review guidelines, checklists, and common pitfalls |
 
 ## Installation
 
@@ -51,6 +52,7 @@ Once installed, skills activate automatically based on context. For example:
 - Ask "How do I install vllm-omni?" and the **setup** skill activates
 - Ask "Generate an image of a sunset" and the **image-gen** skill activates
 - Ask "Set up distributed inference across 4 GPUs" and the **distributed** skill activates
+- Ask "Review this PR for vllm-omni" and the **review** skill activates
 
 Each skill provides step-by-step workflows, code examples, and references to detailed documentation.
 
@@ -81,7 +83,7 @@ vllm-omni-skills/
 ├── scripts/
 │   └── validate_all.py     # Skill validation tool
 └── skills/
-    └── vllm-omni-*/        # 13 skill directories
+    └── vllm-omni-*/        # 14 skill directories
         ├── SKILL.md         # Main skill instructions
         ├── references/      # Detailed reference docs
         └── scripts/         # Utility scripts (some skills)
