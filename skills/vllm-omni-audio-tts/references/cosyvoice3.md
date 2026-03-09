@@ -50,7 +50,9 @@ omni = Omni(
     model="pretrained_models/Fun-CosyVoice3-0.5B",
     stage_configs_path="vllm_omni/model_executor/stage_configs/cosyvoice3.yaml",
     trust_remote_code=True,
-    tokenizer="<model_path>/CosyVoice-BlankEN",
+    # Tokenizer must be downloaded from the FunAudioLLM/CosyVoice repo.
+    # Replace <path_to_cosyvoice_repo> with the actual path.
+    tokenizer="<path_to_cosyvoice_repo>/CosyVoice-3.0-en/CosyVoice-BlankEN",
 )
 outputs = omni.generate("Hello, this is a test of CosyVoice.")
 ```

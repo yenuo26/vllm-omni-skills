@@ -22,43 +22,12 @@ vLLM-Omni supports text-to-speech (TTS), text-to-audio (sound effects, music), a
 | MiMo-Audio-7B | `XiaomiMiMo/MiMo-Audio-7B-Instruct` | Audio understanding + TTS | 24 GB |
 | Stable-Audio-Open | `stabilityai/stable-audio-open-1.0` | Text-to-audio (music/effects) | 8 GB |
 
-## Qwen3-TTS Architecture
+## Model Architectures
 
-Qwen3-TTS runs as a two-stage pipeline:
+Both Qwen3-TTS and CosyVoice3 use a two-stage autoregressive pipeline. See the reference docs for architecture details, key files, and model variants:
 
-| Stage | Class | Role |
-|-------|-------|------|
-| 0 - Code Predictor (AR) | `Qwen3TTSTalkerForConditionalGeneration` | Text tokens -> discrete RVQ codec codes |
-| 1 - Code2Wav (Decoder) | `Qwen3TTSCode2Wav` | Codec codes -> audio waveform |
-
-Stage 0 uses vLLM's native `Qwen3DecoderLayer` with fused QKV and PagedAttention. Stage 1 wraps the HF SpeechTokenizer.
-
-With `async_chunk: true`, Stage 0 streams codec codes to Stage 1 every 25 frames instead of waiting for completion, reducing first-packet latency.
-
-Key files:
-- `vllm_omni/model_executor/models/qwen3_tts/qwen3_tts_code_predictor_vllm.py` - AR stage
-- `vllm_omni/model_executor/models/qwen3_tts/qwen3_tts_code2wav.py` - Decoder stage
-- `vllm_omni/model_executor/stage_configs/qwen3_tts.yaml` - Stage config (async_chunk)
-- `vllm_omni/model_executor/stage_configs/qwen3_tts_batch.yaml` - Batch mode config
-- `vllm_omni/model_executor/stage_input_processors/qwen3_tts.py` - Stage transition
-
-## CosyVoice3 Architecture
-
-CosyVoice3 also runs as a two-stage pipeline but uses flow matching instead of a codec decoder:
-
-| Stage | Class | Role |
-|-------|-------|------|
-| 0 - Talker (AR) | `CosyVoice3Model` | Text -> speech tokens |
-| 1 - Code2Wav (Flow Matching + HiFiGAN) | `CosyVoice3Model` | Speech tokens -> waveform via CFM + vocoder |
-
-CosyVoice3 does not support async_chunk - Stage 0 runs to completion before Stage 1 starts (batch mode only).
-
-Key files:
-- `vllm_omni/model_executor/models/cosyvoice3/cosyvoice3.py` - Unified model class
-- `vllm_omni/model_executor/models/cosyvoice3/cosyvoice3_talker.py` - AR stage
-- `vllm_omni/model_executor/models/cosyvoice3/cosyvoice3_code2wav.py` - Flow matching decoder
-- `vllm_omni/model_executor/stage_configs/cosyvoice3.yaml` - Stage config
-- `vllm_omni/model_executor/stage_input_processors/cosyvoice3.py` - Stage transition
+- [Qwen3-TTS architecture and variants](references/qwen-tts.md)
+- [CosyVoice3 architecture and setup](references/cosyvoice3.md)
 
 ## Quick Start: Text-to-Speech
 
@@ -147,7 +116,7 @@ outputs = omni.generate(
 print(outputs[0].request_output[0].text)
 ```
 
-## Stage Configuration
+## Stage Configuration (Qwen3-TTS)
 
 Default stage config uses async_chunk streaming (`qwen3_tts.yaml`). Key knobs:
 
@@ -160,6 +129,8 @@ Default stage config uses async_chunk streaming (`qwen3_tts.yaml`). Key knobs:
 | `codec_left_context_frames` | Sliding context window for smooth boundaries | `25` |
 
 For batch mode (no streaming), use `qwen3_tts_batch.yaml`.
+
+Note: CosyVoice3 does not support async_chunk streaming yet - use `cosyvoice3.yaml` (batch mode only).
 
 ## Streaming Audio
 
