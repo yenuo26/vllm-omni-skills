@@ -9,6 +9,19 @@ description: Use when reviewing PRs on vllm-project/vllm-omni. Triggers domain-s
 
 Review pull requests for [vLLM-Omni](https://github.com/vllm-project/vllm-omni) by leveraging domain-specific skills. Focus on critical issues: missing tests, unvalidated claims, security, design flaws, and breaking changes.
 
+## Review Layers
+
+This skill orchestrates multiple review capabilities:
+
+| Layer | Capability | Source | Trigger |
+|-------|------------|--------|---------|
+| 1. Gates | CI status, mergeability | Built-in | Always |
+| 2. Context | Linked issues, related PRs | Built-in | Always |
+| 3. Domain | ML/inference expertise | Domain skills | PR prefix match |
+| 4. Pitfalls | vLLM-Omni specific bugs | This skill | Always |
+| 5. General | Security, performance | `code-reviewer` agent | Non-domain code |
+| 6. Deep dive | Error handling, types, tests | Specialized agents | Trigger conditions |
+
 ## Review Constraints
 
 | Constraint | Value |
@@ -181,11 +194,68 @@ gh pr diff <pr_number> --repo vllm-project/vllm-omni | grep -E 'is_npu|is_cuda|t
 - [ ] Mixin after `nn.Module` with `__init__` setting attributes?
 - [ ] API changes without documentation?
 
-### Step 4: Check Pitfalls by Directory
+### Step 3.5: Delegate to Specialized Agents
 
-Check pitfalls relevant to affected directories first:
+**Trigger-based delegation for deeper analysis.** Only invoke if trigger conditions are met.
 
- then consult [references/pitfalls.md](references/pitfalls.md) for detailed explanations.
+| Trigger Condition | Agent | Focus | Max Comments |
+|-------------------|-------|-------|--------------|
+| `try/except` or `except:` blocks added/modified | `pr-review-toolkit:silent-failure-hunter` | Silent failures, inadequate error handling, bad fallbacks | 2 |
+| New `class` definitions with `@dataclass` or `TypedDict` | `pr-review-toolkit:type-design-analyzer` | Invariant design, encapsulation, type safety | 1 |
+| Test files modified (`.test.`, `_test.`, `tests/`) | `pr-review-toolkit:pr-test-analyzer` | Coverage gaps, edge case coverage, mock quality | 2 |
+| Changes to `vllm_omni/entrypoints/` | `pr-review-toolkit:code-reviewer` | Security vulnerabilities, input validation, injection risks | 2 |
+| Changes to config/validation code | `pr-review-toolkit:code-reviewer` | Validation completeness, edge cases | 1 |
+
+**How to invoke:**
+
+```bash
+# Use the Agent tool with the appropriate subagent_type
+# Example for silent-failure-hunter:
+Agent(subagent_type="pr-review-toolkit:silent-failure-hunter", prompt="Review the error handling in this PR diff for silent failures...")
+```
+
+**Delegation rules:**
+- Max 2 agents per PR (avoid review overload)
+- Skip if PR is small (< 50 lines) or documentation-only
+- Agent comments count toward the 5-comment limit
+- If agent finds no issues, don't post anything
+
+**Integration with domain skills:**
+- Domain skills (Step 2) take priority over general agents
+- Run agents AFTER domain skill invocation
+- Agents can validate domain skill recommendations
+
+### Step 4: General Code Quality Layer
+
+**For non-domain code**, invoke general review capabilities.
+
+**When to invoke `code-reviewer` agent:**
+- Changes to utility files (`vllm_omni/utils/`, `vllm_omni/config/`)
+- Changes to CLI or setup code
+- PR has no domain prefix (no `[Image]`, `[Audio]`, etc.)
+- Changes span multiple unrelated subsystems
+
+```bash
+# Invoke via Agent tool
+Agent(subagent_type="code-reviewer", prompt="Review this PR for security vulnerabilities, performance issues, and production reliability. Focus on high-priority issues only.")
+```
+
+**Focus areas for general review:**
+| Category | Examples |
+|----------|----------|
+| Security | SQL injection, command injection, path traversal |
+| Performance | O(n²) algorithms, unnecessary allocations |
+| Reliability | Race conditions, resource leaks |
+| Code quality | Dead code, unreachable paths |
+
+**Skip general review if:**
+- Domain skill already covers the changes
+- PR is < 20 lines
+- PR is documentation-only
+
+### Step 5: Check Pitfalls by Directory
+
+Check pitfalls relevant to affected directories first, then consult [references/pitfalls.md](references/pitfalls.md) for detailed explanations.
 
 | Affected Directory | Pitfalls to Check |
 |--------------------|-------------------|
@@ -197,12 +267,7 @@ Check pitfalls relevant to affected directories first:
 | `vllm_omni/entrypoints/` | Input validation, error handling |
 | `*` (any) | MRO issues with mixins, async vs sync path differences |
 
-- MRO issues with mixins
-- Connector state management
-- Async vs Sync path differences
-- Stage configuration validation
-
-### Step 5: Post Review
+### Step 6: Post Review
 
 ```bash
 gh api repos/vllm-project/vllm-omni/pulls/<pr_number>/reviews --input - <<EOF
@@ -223,6 +288,22 @@ EOF
 | **Draft** | Ask questions, suggest alternatives: "Consider X for Y because..." |
 | **Ready** | Request changes: "Please address..." "This needs..." |
 | **Approved/In Progress** | Only comment if blocking: "Note: found issue at..." |
+
+## Comment Budget Allocation
+
+Total: **5 comments max** per PR (soft limit, hard exceptions for critical issues)
+
+| Source | Budget | When Used |
+|--------|--------|-----------|
+| Domain pitfalls (Step 5) | 2-3 | Always for domain PRs |
+| Specialized agents (Step 3.5) | 1-2 | When triggers match |
+| General review (Step 4) | 1-2 | Non-domain code |
+| Manual observations | 0-1 | Critical issues not caught above |
+
+**Budget rules:**
+- If domain skill finds 3+ issues, skip general review (already comprehensive)
+- Agent comments must be high-confidence (no speculation)
+- Combine related findings into single comment when possible
 
 ## Priority Order
 
@@ -267,6 +348,16 @@ This mixin is listed after nn.Module but has an __init__ that sets attributes. W
 The implementation looks good. Consider adding tests.
 ```
 
+**Good (Agent-Generated - Silent Failure):**
+```
+This catch block returns an empty list on error, but the caller iterates over the result without checking. If the network fails, downstream code will silently process zero items instead of surfacing the connectivity issue. Consider logging the exception and re-raising, or returning None to signal failure explicitly.
+```
+
+**Good (Agent-Generated - Type Design):**
+```
+The `GenerationConfig` class has 12 fields but only 3 are validated. Fields like `max_tokens` and `temperature` have implicit constraints (must be positive) that aren't enforced. Consider adding a `validate()` method or using a library like pydantic for automatic validation.
+```
+
 ## Context Fetching
 
 **When to fetch more context:**
@@ -305,3 +396,18 @@ Do NOT flag these as missing:
 - [Common Pitfalls](references/pitfalls.md) — MRO issues, connector state, async patterns
 - [Architecture](references/architecture.md) — System overview and critical paths
 - [Code Patterns](references/code-patterns.md) — Async, distributed, KV cache patterns
+
+## Quick Reference: What to Invoke When
+
+| PR Contains | Invoke | Why |
+|-------------|--------|-----|
+| `[Image]`, `[Video]`, `[Audio]`, etc. | Domain skill (Step 2) | Domain-specific validation |
+| `is_npu`, `torch_npu`, NPU code | `vllm-omni-hardware` | Platform compatibility |
+| Changes to `vllm_omni/engine/` | Pitfalls check + domain skill | Critical path |
+| `try/except` blocks | `silent-failure-hunter` | Catch silent failures |
+| New dataclasses/TypedDicts | `type-design-analyzer` | Invariant validation |
+| Test file changes | `pr-test-analyzer` | Coverage gaps |
+| API endpoint changes | `code-reviewer` + `vllm-omni-api` | Security + domain |
+| Utility/config changes | `code-reviewer` | General quality |
+| No domain prefix | `code-reviewer` | General-purpose review |
+| < 20 lines, doc-only | Nothing | Skip extra review |
