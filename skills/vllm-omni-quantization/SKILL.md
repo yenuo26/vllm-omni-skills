@@ -1,6 +1,6 @@
 ---
 name: vllm-omni-quantization
-description: Use when working on vllm-omni quantization for autoregressive or diffusion models, choosing methods such as AWQ, GPTQ, FP8, or GGUF, adding diffusion methods like INT8 or NVFP4, or debugging memory, loader, quality, or performance issues
+description: Use when working on vLLM-Omni quantization for autoregressive or diffusion models, choosing methods such as `awq`, `gptq`, `fp8`, or `gguf`, adding diffusion methods like `int8` or `nvfp4`, or debugging memory, loader, quality, or performance issues.
 ---
 
 # vLLM-Omni Quantization
