@@ -76,7 +76,7 @@ Elements required to demonstrate that the bug is fixed and will not recur:
 ```markdown
 ## Coverage Conclusion
 
-**required** | **recommended** | **not_needed**
+**required** / **recommended** / **not_needed** (select one)
 
 ## Rationale
 
