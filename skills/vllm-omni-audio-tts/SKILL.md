@@ -1,23 +1,35 @@
 ---
 name: vllm-omni-audio-tts
-description: Generate audio and speech with vLLM-Omni using Qwen3-TTS, MiMo-Audio, and Stable-Audio models. Use when synthesizing speech from text, generating audio effects or music, configuring TTS parameters, cloning voices, or working with text-to-speech models.
+description: Generate audio and speech with vLLM-Omni using Qwen3-TTS, Fish Speech S2 Pro, CosyVoice3, MiMo-Audio, and Stable-Audio models. Use when synthesizing speech from text, generating audio effects or music, configuring TTS parameters, cloning voices, adding new TTS models, or working with text-to-speech models.
 ---
 
 # vLLM-Omni Audio & TTS
 
 ## Overview
 
-vLLM-Omni supports text-to-speech (TTS), text-to-audio (sound effects, music), and audio understanding through multiple model families. TTS models use autoregressive architectures while audio generation uses diffusion.
+vLLM-Omni supports text-to-speech (TTS), text-to-audio (sound effects, music), and audio understanding through multiple model families. TTS models use a two-stage autoregressive pipeline (Code Predictor + Code2Wav decoder), while audio generation uses diffusion.
 
 ## Supported Audio Models
 
 | Model | HF ID | Type | Min VRAM |
 |-------|-------|------|----------|
-| Qwen3-TTS CustomVoice | `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` | TTS + voice cloning | 8 GB |
-| Qwen3-TTS VoiceDesign | `Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign` | TTS + voice design | 8 GB |
-| Qwen3-TTS Base | `Qwen/Qwen3-TTS-12Hz-0.6B-Base` | Basic TTS | 4 GB |
+| Qwen3-TTS 1.7B CustomVoice | `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` | TTS + voice cloning | 8 GB |
+| Qwen3-TTS 1.7B VoiceDesign | `Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign` | TTS + voice design | 8 GB |
+| Qwen3-TTS 1.7B Base | `Qwen/Qwen3-TTS-12Hz-1.7B-Base` | Basic TTS | 8 GB |
+| Qwen3-TTS 0.6B CustomVoice | `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` | TTS + voice cloning | 4 GB |
+| Qwen3-TTS 0.6B Base | `Qwen/Qwen3-TTS-12Hz-0.6B-Base` | Basic TTS | 4 GB |
+| Fish Speech S2 Pro | `fishaudio/s2-pro` | TTS + voice cloning (dual-AR + DAC) | 16 GB |
+| CosyVoice3 0.5B | `FunAudioLLM/Fun-CosyVoice3-0.5B-2512` | TTS (AR + flow matching) | 4 GB |
 | MiMo-Audio-7B | `XiaomiMiMo/MiMo-Audio-7B-Instruct` | Audio understanding + TTS | 24 GB |
 | Stable-Audio-Open | `stabilityai/stable-audio-open-1.0` | Text-to-audio (music/effects) | 8 GB |
+
+## Model Architectures
+
+Both Qwen3-TTS and CosyVoice3 use a two-stage autoregressive pipeline. See the reference docs for architecture details, key files, and model variants:
+
+- [Qwen3-TTS architecture and variants](references/qwen-tts.md)
+- [Fish Speech S2 Pro architecture and setup](references/fish-speech.md)
+- [CosyVoice3 architecture and setup](references/cosyvoice3.md)
 
 ## Quick Start: Text-to-Speech
 
@@ -46,7 +58,7 @@ curl -s http://localhost:8091/v1/audio/speech \
   }' --output greeting.wav
 ```
 
-## Voice Cloning (Qwen3-TTS CustomVoice)
+## Voice Cloning (CustomVoice variants)
 
 Clone a voice from a reference audio sample:
 
@@ -59,7 +71,7 @@ outputs = omni.generate(
 outputs[0].request_output[0].audio.save("cloned_speech.wav")
 ```
 
-## Voice Design (Qwen3-TTS VoiceDesign)
+## Voice Design (VoiceDesign variant)
 
 Design a voice by describing its characteristics:
 
@@ -106,13 +118,23 @@ outputs = omni.generate(
 print(outputs[0].request_output[0].text)
 ```
 
-## TTS Parameters
+## Stage Configuration (Qwen3-TTS)
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `voice` | Voice ID or reference audio path | Model default |
-| `speed` | Speech rate multiplier | 1.0 |
-| `response_format` | Output format (wav, mp3, opus) | wav |
+Default stage config uses async_chunk streaming (`qwen3_tts.yaml`). Key knobs:
+
+| Config | Description | Default |
+|--------|-------------|---------|
+| `async_chunk` | Enable inter-stage streaming | `true` |
+| `runtime.max_batch_size` | Max requests batched per stage | `1` |
+| `enforce_eager` | Disable CUDA Graph (Stage 0: false, Stage 1: true) | varies |
+| `codec_chunk_frames` | AR frames per async chunk | `25` |
+| `codec_left_context_frames` | Sliding context window for smooth boundaries | `25` |
+
+For batch mode (no streaming), use `qwen3_tts_batch.yaml`.
+
+Fish Speech uses `fish_speech_s2_pro.yaml` with similar knobs. Its DAC codec outputs at 44.1 kHz (vs Qwen3-TTS's 24 kHz).
+
+Note: CosyVoice3 does not support async_chunk streaming yet - use `cosyvoice3.yaml` (batch mode only).
 
 ## Streaming Audio
 
@@ -126,13 +148,19 @@ response = client.chat.completions.create(
 )
 ```
 
+## Adding a New TTS Model
+
+For a step-by-step guide on integrating a new TTS model into vLLM-Omni, see the [TTS model developer guide](https://github.com/vllm-project/vllm-omni/blob/main/docs/contributing/model/adding_tts_model.md).
+
 ## Troubleshooting
 
-**Audio quality issues**: Use higher sample rate models (12Hz variants). Ensure reference audio for voice cloning is clean (no background noise).
+**Audio quality issues**: Ensure reference audio for voice cloning is clean (no background noise), 10-20 seconds, single speaker.
 
-**Slow generation**: TTS models are autoregressive -- generation time scales with output duration. For long texts, consider splitting into segments.
+**Slow generation**: TTS models are autoregressive - generation time scales with output duration. Enable async_chunk for lower first-packet latency. For throughput, increase `max_batch_size`.
 
 ## References
 
 - For Qwen3-TTS details and voice options, see [references/qwen-tts.md](references/qwen-tts.md)
+- For Fish Speech S2 Pro details, see [references/fish-speech.md](references/fish-speech.md)
+- For CosyVoice3 details, see [references/cosyvoice3.md](references/cosyvoice3.md)
 - For MiMo-Audio capabilities, see [references/mimo-audio.md](references/mimo-audio.md)
