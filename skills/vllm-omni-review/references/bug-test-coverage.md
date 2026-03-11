@@ -119,7 +119,7 @@ L1 / L2 / L3 / L4 (select one)
 | Level | Description | Typical location |
 |-------|-------------|------------------|
 | **L1** | Unit tests, no external dependencies, millisecond runtime | Directories under `tests/` except `tests/e2e/` and `tests/perf/` |
-| **L2&L3** | Integration tests | `tests/e2e` |
+| **L2, L3** | Integration tests | `tests/e2e` |
 | **L4** | Performance/full validation | `tests/perf/`, `tests/e2e` |
 
 ## Examples
