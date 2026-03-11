@@ -35,7 +35,7 @@ Use this format. Keep it short and actionable.
 
 ### 3) Docs Sync Checklist (examples ↔ docs)
 
-- If `examples/` README/docs were changed, ensure the corresponding `docs/` entry points are updated (avoid stale user-facing docs), if not, tell user using `mkdocs serve` to sync the updates from `examples`  to `docs`.
+- If `examples/` README/docs were changed, ensure the corresponding `docs/` entry points are updated (avoid stale user-facing docs). If the repository uses MkDocs, run `mkdocs serve` to preview the docs site locally and verify the navigation/entry pages reflect the changes.
 - If a new model/feature/parameter/default changed, ensure `vllm-omni/docs` includes:
   - What it is / how to use
   - Constraints and known limitations
