@@ -13,7 +13,6 @@ A collection of AI assistant skills for [vLLM-Omni](https://github.com/vllm-proj
 | [vllm-omni-image-gen](skills/vllm-omni-image-gen/) | Image generation and editing (FLUX, SD3, Qwen-Image, BAGEL, etc.) |
 | [vllm-omni-video-gen](skills/vllm-omni-video-gen/) | Video generation (Wan2.2 T2V/I2V/TI2V) |
 | [vllm-omni-audio-tts](skills/vllm-omni-audio-tts/) | Audio generation and TTS (Qwen3-TTS, MiMo-Audio, Stable-Audio) |
-| [vllm-omni-tts-integration](skills/vllm-omni-tts-integration/) | Step-by-step workflow for integrating new TTS models into vLLM-Omni |
 | [vllm-omni-multimodal](skills/vllm-omni-multimodal/) | End-to-end omni-modality models (Qwen-Omni) |
 | [vllm-omni-distributed](skills/vllm-omni-distributed/) | Distributed inference, disaggregation, Ray |
 | [vllm-omni-perf](skills/vllm-omni-perf/) | Performance tuning, benchmarking, TeaCache, CPU offloading |
@@ -21,7 +20,6 @@ A collection of AI assistant skills for [vLLM-Omni](https://github.com/vllm-proj
 | [vllm-omni-contrib](skills/vllm-omni-contrib/) | Contributing new models and development workflow |
 | [vllm-omni-cicd](skills/vllm-omni-cicd/) | CI/CD pipelines for model deployments |
 | [vllm-omni-review](skills/vllm-omni-review/) | PR review guidelines, checklists, and common pitfalls |
-| [vllm-omni-xiaohongshu](skills/vllm-omni-xiaohongshu/) | Turn PRs, releases, and benchmark wins into Xiaohongshu posts |
 
 ## Installation
 
@@ -55,7 +53,6 @@ Once installed, skills activate automatically based on context. For example:
 - Ask "Generate an image of a sunset" and the **image-gen** skill activates
 - Ask "Set up distributed inference across 4 GPUs" and the **distributed** skill activates
 - Ask "Review this PR for vllm-omni" and the **review** skill activates
-- Ask "Turn this PR into a Xiaohongshu post" and the **xiaohongshu** skill activates
 
 Each skill provides step-by-step workflows, code examples, and references to detailed documentation.
 
@@ -86,10 +83,9 @@ vllm-omni-skills/
 ├── scripts/
 │   └── validate_all.py     # Skill validation tool
 └── skills/
-    └── vllm-omni-*/        # 16 skill directories
+    └── vllm-omni-*/        # 14 skill directories
         ├── SKILL.md         # Main skill instructions
         ├── references/      # Detailed reference docs
-        ├── assets/          # Output templates or reusable assets (some skills)
         └── scripts/         # Utility scripts (some skills)
 ```
 
