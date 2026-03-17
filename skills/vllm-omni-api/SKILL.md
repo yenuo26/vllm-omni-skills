@@ -21,9 +21,12 @@ vllm serve <model-name> --omni --port 8091
 |----------|--------|---------|
 | `/v1/chat/completions` | POST | Chat-based generation (text, image, audio) |
 | `/v1/images/generations` | POST | Direct image generation |
-| `/v1/audio/speech` | POST | Text-to-speech |
+| `/v1/audio/speech` | POST | Text-to-speech (wav/mp3) |
+| `/v1/audio/voice/upload` | POST | Upload custom voice for cloning |
 | `/health` | GET | Server health check |
 | `/v1/models` | GET | List loaded models |
+
+**Update (2026-03-15):** `/v1/audio/voice/upload` endpoint restored. `/v1/audio/speech` now supports `response_format: "wav"` with streaming.
 
 ## Chat Completions (Universal)
 

@@ -20,9 +20,13 @@ vLLM-Omni supports text-to-image generation and image editing through diffusion 
 | BAGEL-7B-MoT | `ByteDance-Seed/BAGEL-7B-MoT` | Text-to-image + understanding | 24 GB |
 | FLUX.1-dev | `black-forest-labs/FLUX.1-dev` | Text-to-image | 40 GB |
 | FLUX.2-klein | `black-forest-labs/FLUX.2-klein-4B` | Text-to-image | 16 GB |
+| FLUX.2-dev | `black-forest-labs/FLUX.2-dev` | Text-to-image + cache_dit | 24 GB |
+| Dreamid-Omni | `bytedance/dreamid-omni` | Text-to-image (ByteDance) | 24 GB |
 | SD 3.5 Medium | `stabilityai/stable-diffusion-3.5-medium` | Text-to-image | 12 GB |
 | OmniGen2 | `OmniGen2/OmniGen2` | Text-to-image | 24 GB |
 | HunyuanImage3.0 | `tencent/HunyuanImage-3.0` | Text-to-image | 40 GB |
+
+**New (2026-03-15):** Dreamid-Omni from ByteDance and FLUX.2-dev with cache_dit support are now available.
 
 ## Quick Start: Offline Generation
 
