@@ -110,16 +110,6 @@ At least one of the following must be implemented:
 - [ ] Feature can be enabled via config or CLI flag
 - [ ] PR body or docs show VRAM reduction from enabling the feature
 
-### 2.6 Combined Feature Validation
-
-Only checked when **two or more** features from 2.4+2.5 are implemented:
-
-- [ ] PR body includes a script enabling multiple features simultaneously
-- [ ] Sample output under combined config is shown (quality preserved)
-- [ ] Latency under combined config is reported
-- [ ] VRAM under combined config is reported
-- [ ] No degraded output quality under combination (or degradation is explicitly documented)
-
 ---
 
 ## Dimension 3: Documentation
@@ -170,7 +160,7 @@ gh pr view <pr_number> --repo vllm-project/vllm-omni \
 
 ### 4.1 e2e Online Serving Test (Required)
 
-Location: `tests/e2e/online_serving/test_<model_name>_expansion.py`
+Location: `tests/e2e/online_serving/test_<model_name>.py`
 
 - [ ] Test file exists in `tests/e2e/online_serving/`
 - [ ] Test starts the server (or uses a fixture that does)
@@ -179,7 +169,7 @@ Location: `tests/e2e/online_serving/test_<model_name>_expansion.py`
 - [ ] Test includes at least one functional scenario (basic generation)
 - [ ] Test includes at least one negative case (invalid input → 400 error)
 
-### 4.2 Offline Inference Test (Required)
+### 4.2 Offline Inference Test (Recommended; required only when no e2e test is present)
 
 - [ ] Test instantiates `Omni(model="<hf_id>")`
 - [ ] Test calls `.generate()` with at least one prompt
@@ -190,7 +180,16 @@ Location: `tests/e2e/online_serving/test_<model_name>_expansion.py`
 
 - [ ] Test enables each acceleration feature and asserts output validity
 - [ ] Test enables each memory optimization and asserts output validity + VRAM within budget
-- [ ] If combined validation: test enables two features together
+
+### 4.4 Combined Feature Test (Required when 2+ features implemented)
+
+Only checked when the PR implements **two or more** acceleration or memory features:
+
+- [ ] Test (or an extended e2e test case) enables multiple features simultaneously
+- [ ] Output under combined config is asserted as valid (quality preserved)
+- [ ] Latency under combined config is reported
+- [ ] VRAM under combined config is reported
+- [ ] Any quality degradation under combination is explicitly documented
 
 ---
 
@@ -209,8 +208,10 @@ Flag immediately and post a blocking comment if any of these are true:
 | No acceleration feature | 🔴 Blocking | Must implement at least one |
 | No memory optimization | 🔴 Blocking | Must implement at least one |
 | No e2e online serving test | 🔴 Blocking | Must add test |
+| No offline inference test (and no e2e test) | 🔴 Blocking | Must add at least one test |
+| No offline inference test (e2e test exists) | 💡 Recommended | Suggest, do not block |
 | Model support table not updated | 🔴 Blocking | Must update docs |
 | Feature support table not updated | 🔴 Blocking | Must update docs |
 | No diffusers comparison | 💡 Recommended | Suggest, do not block |
-| No combined feature validation | ⚠️ Conditional | Required only if 2+ features |
+| No combined feature test (2+ features) | ⚠️ Conditional | Required when 2+ features implemented |
 | No usage example doc | 🔴 Blocking | Must add example |

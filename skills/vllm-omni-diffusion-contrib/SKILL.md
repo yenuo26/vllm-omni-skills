@@ -167,20 +167,6 @@ CPU offload (`--cpu-offload-gb`), quantization (int8/fp8/bnb), or VAE tiling.
 Please implement and document which option is supported.
 ```
 
-#### 2.5 Combined Feature Validation (required when multiple features implemented)
-
-When the PR implements **two or more** acceleration or memory features, verify that the PR body includes evidence of **combined usage**:
-- A script enabling multiple features simultaneously
-- Sample output demonstrating generation quality is preserved
-- Latency and VRAM measurements under combined configuration
-
-Flag if combined validation is absent:
-```
-⚠️ Multiple features are implemented (e.g., <feature A> + <feature B>) but no combined
-validation is shown. Please add a test or benchmark that enables both features together
-and reports generation quality + latency + VRAM under the combined configuration.
-```
-
 ---
 
 ### Dimension 3: Documentation
@@ -237,8 +223,9 @@ gh pr view <pr_number> --repo vllm-project/vllm-omni \
 | Test Type | Location | Required | What to Verify |
 |-----------|----------|----------|----------------|
 | **e2e online serving test** | `tests/e2e/online_serving/` | Yes | Start server, send request, assert output shape / non-null |
-| **Offline inference test** | `tests/` or `tests/models/` | Yes | Instantiate `Omni`, call `.generate()`, assert output |
-| **Acceleration feature test** | Alongside above | Recommended | Enable each supported feature, verify output quality and speed |
+| **Offline inference test** | `tests/` or `tests/models/` | No (if e2e test exists) | Instantiate `Omni`, call `.generate()`, assert output |
+| **Acceleration / memory feature test** | Alongside above | Recommended | Enable each supported feature, verify output quality and speed |
+| **Combined feature test** | Alongside above | Required if 2+ features implemented | Enable multiple features together, assert output valid + VRAM + latency reported |
 
 Flag if e2e online serving test is missing:
 ```
@@ -249,11 +236,12 @@ Please add a test that:
 3. Asserts the response contains a valid image / video / audio output
 ```
 
-Flag if offline inference test is missing:
+Flag if combined feature test is missing when 2+ features are implemented:
 ```
-🔴 Missing offline inference test. Please add a test that instantiates
-`Omni(model="<hf_id>")` and calls `.generate()` with at least one prompt,
-asserting the output is valid.
+⚠️ Multiple features are implemented (e.g., <feature A> + <feature B>) but no combined
+feature test is present. Please add a test (or extend the e2e test) that enables both
+features together and asserts output validity + reports latency + VRAM under the
+combined configuration.
 ```
 
 ---
@@ -292,7 +280,8 @@ EOF
 4. **Missing memory optimization** — required for all new diffusion models
 5. **Missing documentation** — tables and examples must be updated
 6. **Missing e2e test** — required for merge gate
-7. **Combined feature validation** — strongly recommended when multiple features exist
+7. **Missing offline inference test** — recommended; required only when no e2e test is present
+8. **Combined feature test** — required when two or more acceleration/memory features are implemented
 
 ## Comment Constraints
 
