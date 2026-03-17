@@ -170,7 +170,7 @@ gh pr view <pr_number> --repo vllm-project/vllm-omni \
 
 ### 4.1 e2e Online Serving Test (Required)
 
-Location: `tests/e2e/online_serving/test_<model_name>.py`
+Location: `tests/e2e/online_serving/test_<model_name>_expansion.py`
 
 - [ ] Test file exists in `tests/e2e/online_serving/`
 - [ ] Test starts the server (or uses a fixture that does)

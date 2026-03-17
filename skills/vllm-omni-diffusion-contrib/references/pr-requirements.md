@@ -181,7 +181,7 @@ Sample output with combined config: ![combined](./assets/sample_combined.png)
 
 ## Test Coverage
 
-- [ ] `tests/e2e/online_serving/test_<model_name>.py` — online serving e2e test
+- [ ] `tests/e2e/online_serving/test_<model_name>_expansion.py` — online serving e2e test
 - [ ] `tests/models/test_<model_name>.py` — offline inference test
 ````
 
