@@ -158,10 +158,11 @@ frames = omni.generate(
 **Any-to-Any:**
 ```python
 # Models that support cross-modal generation (e.g., text+image -> audio+video)
+# Models that support cross-modal generation (e.g., text+image -> audio+video)
 omni = Omni(model="org/any-to-any-model")
 
 # Generate multiple output modalities from mixed input
-# Assumes 'image' is loaded as shown in the Image-to-Video/Image-to-Image example above
+# Assumes 'image' is loaded as in the previous example.
 outputs = omni.generate(
     prompt="Describe this scene and generate matching audio",
     pil_image=image,  # Optional: image input
