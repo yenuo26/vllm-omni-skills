@@ -205,7 +205,7 @@ gh pr diff <pr_number> --repo vllm-project/vllm-omni \
 
 ```
 🔴 Missing <offline inference / online serving> support. The model must work in both
-`Omni` (offline) and `vllm serve` / `AsyncOmni` (online) modes before merging.
+Omni (offline) and vllm serve / AsyncOmni (online) modes before merging.
 ```
 
 #### 2.2 Diffusers Mixin Cleanup (required)
