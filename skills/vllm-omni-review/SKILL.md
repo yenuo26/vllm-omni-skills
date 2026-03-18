@@ -53,9 +53,7 @@ Use the title prefix and changed directories to decide whether a domain skill is
 | `[API]` or `vllm_omni/entrypoints/` changes | Use `vllm-omni-api` |
 | `[CI]` | Use `vllm-omni-cicd` |
 | `[Model]` | Use `vllm-omni-contrib` |
-| `[Bug]`, `[Bugfix]` | Use `vllm-omni-bug` |
-
-If the PR spans multiple specialized areas, choose the primary skill first and load a secondary skill only when the diff crosses a real subsystem boundary.
+| `[Bug]`, `[Bugfix]` | Use [references/bug-test-coverage.md](bug-test-coverage.md) |
 
 For multi-skill routing, hardware detection, and delegation rules, see [references/review-routing.md](references/review-routing.md).
 
