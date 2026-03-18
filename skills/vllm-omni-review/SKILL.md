@@ -82,6 +82,28 @@ Apply these checks to every substantive PR:
 
 If a finding is speculative, do not comment. Fetch a bit more code context first or drop it.
 
+### Step 4.5: Ask for Concrete Validation Evidence
+
+When tests or benchmarks are missing, ask for the specific evidence needed for the changed area instead of a generic "please add tests" comment.
+
+Required evidence by change type:
+
+| Change Type | Minimum Evidence to Request |
+|-------------|-----------------------------|
+| API behavior, request parsing, response schema, streaming, modality I/O | Functional API tests covering success path, invalid input, and response contract |
+| Model execution logic, kernels, sampling, connector/stage behavior | Inference correctness tests that compare outputs, shapes, tokens, or modality payloads against an expected result or trusted baseline |
+| Performance optimization, scheduling, caching, parallelism, quantization, serving throughput | Performance regression benchmark showing before/after latency or throughput on stated hardware |
+| Memory management, offloading, large-model support, batching changes | Peak memory measurement showing the change does not regress VRAM/RAM usage beyond the claimed budget |
+| Bug fixes | A regression test that reproduces the original bug and fails without the fix |
+
+Be explicit in review comments:
+
+- For API changes, ask for tests that exercise both valid and invalid requests and verify the response contract.
+- For inference changes, ask for accuracy or correctness checks, not only smoke tests.
+- For performance claims, ask for benchmark scripts, commands, hardware details, and before/after numbers.
+- For memory claims, ask for peak memory numbers and the measurement method.
+- For bug fixes, treat "manual verification only" as insufficient unless the bug cannot be automated and the reason is explained.
+
 ### Step 5: Keep the Output Tight
 
 Comment only on blocking or high-value issues. Combine related problems into a single comment when possible, and avoid praise-only or low-signal remarks. Small documentation-only PRs often need no inline comments.
@@ -97,6 +119,9 @@ For comment budget, phrasing, examples, and posting mechanics, see [references/r
 ## Review Heuristics
 
 - Treat missing tests as the default highest-priority issue.
+- For [Bugfix] PRs, require a regression test unless automation is genuinely impossible and the author explains why.
+- For API-facing PRs, prefer contract tests over broad end-to-end smoke tests.
+- For model-path PRs, separate correctness evidence from performance evidence; one does not substitute for the other.
 - Demand measurements for performance, memory, or quality claims.
 - Be suspicious of silent fallbacks, swallowed exceptions, and device-specific assumptions.
 - Review critical paths first: engine, model executor, connectors, stages, and API entrypoints.
