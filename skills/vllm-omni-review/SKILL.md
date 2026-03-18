@@ -98,7 +98,7 @@ Required evidence by change type:
 
 Be explicit in review comments:
 
-- For API changes, ask for tests that exercise both valid and invalid requests.
+- For API changes, ask for tests that exercise both valid and invalid requests and verify the response contract.
 - For inference changes, ask for accuracy or correctness checks, not only smoke tests.
 - For performance claims, ask for benchmark scripts, commands, hardware details, and before/after numbers.
 - For memory claims, ask for peak memory numbers and the measurement method.
