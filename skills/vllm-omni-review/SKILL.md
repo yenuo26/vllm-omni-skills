@@ -72,11 +72,23 @@ Avoid loading all three by default. Start with the one that matches the changed 
 
 ### Step 4: Run the Critical Checks
 
-Apply these checks to every substantive PR:
+**First, check the PR description for evidence.** Many PRs include comprehensive testing evidence directly in their description. Before requesting additional tests, verify whether the PR already provides:
 
-- Is there a regression test for bug fixes?
-- Do new features include tests and docs where needed?
-- Are performance claims backed by benchmark data?
+| Evidence Type | Valid Forms in PR Description |
+|---------------|------------------------------|
+| **Inference correctness** | E2E generation results, visual outputs (images/videos), output shape verification |
+| **Quality metrics** | LPIPS, FID, CLIP scores comparing quantized vs baseline |
+| **Performance claims** | Benchmark tables with timing, speedup percentages, memory reduction |
+| **Memory profiling** | Weights/activations/peak breakdown, TP scaling data |
+| **Regression tests** | Test commands with [x] checkmarks showing they were run successfully |
+
+**Only request additional tests if evidence is genuinely missing or insufficient.**
+
+Then apply these checks:
+
+- Is there a regression test for bug fixes? (Check PR description first!)
+- Do new features include tests and docs where needed? (PR description evidence counts!)
+- Are performance claims backed by benchmark data? (Look for tables in PR body)
 - Are API or config changes validated early and documented?
 - Does the change preserve cleanup, state transitions, and distributed invariants?
 
@@ -84,7 +96,7 @@ If a finding is speculative, do not comment. Fetch a bit more code context first
 
 ### Step 4.5: Ask for Concrete Validation Evidence
 
-When tests or benchmarks are missing, ask for the specific evidence needed for the changed area instead of a generic "please add tests" comment.
+When tests or benchmarks are missing **and PR description evidence is insufficient**, ask for the specific evidence needed for the changed area instead of a generic "please add tests" comment.
 
 Required evidence by change type:
 
@@ -118,11 +130,12 @@ For comment budget, phrasing, examples, and posting mechanics, see [references/r
 
 ## Review Heuristics
 
-- Treat missing tests as the default highest-priority issue.
+- **Check PR description evidence before requesting tests.** Many authors provide comprehensive benchmarks, quality metrics (LPIPS/FID), memory profiling, and visual outputs directly in the PR body. This satisfies testing requirements.
+- Only flag missing tests when evidence is genuinely absent or insufficient.
 - For [Bugfix] PRs, require a regression test unless automation is genuinely impossible and the author explains why.
 - For API-facing PRs, prefer contract tests over broad end-to-end smoke tests.
 - For model-path PRs, separate correctness evidence from performance evidence; one does not substitute for the other.
-- Demand measurements for performance, memory, or quality claims.
+- Demand measurements for performance, memory, or quality claims — but recognize when authors have already provided them.
 - Be suspicious of silent fallbacks, swallowed exceptions, and device-specific assumptions.
 - Review critical paths first: engine, model executor, connectors, stages, and API entrypoints.
 - Skip nits, style comments, and linter-covered feedback unless they hide a correctness issue.
