@@ -20,7 +20,7 @@ python scripts/validate_all.py skills/vllm-omni-setup/
 
 Each skill follows a three-layer structure:
 
-1. **SKILL.md** (always loaded) -- YAML frontmatter (`name`, `description`) + concise workflow (max 500 lines)
+1. **SKILL.md** (always loaded) -- YAML frontmatter (`name`, `description`) + concise workflow (max 300 lines)
 2. **references/** (loaded on demand) -- Detailed guides, model-specific docs
 3. **scripts/** (executed, not loaded) -- Python/shell utilities
 
@@ -79,10 +79,29 @@ The `validate_all.py` script enforces:
 - Frontmatter must have `name` and `description` fields
 - `name` must match directory name (lowercase, alphanumeric + hyphens)
 - Description must include WHEN context (trigger scenarios)
-- Body must be under 500 lines
+- Body must be under 300 lines
 - All markdown links to local files must resolve
 - Reference files not linked from SKILL.md are flagged as orphaned
 - Python/shell scripts must be syntactically valid
+
+## Safe Change Rules
+
+These files have cascade effects - modify with care:
+
+| File | Impact |
+|------|--------|
+| `scripts/validate_all.py` | Affects validation of all 16 skills |
+| `CLAUDE.md` | Changes AI behavior for all skill work |
+| `.github/PULL_REQUEST_TEMPLATE.md` | Affects all PR workflows |
+
+When modifying these files, re-validate all skills and test with an actual agent.
+
+## Do NOT Use
+
+- **Do NOT** add new skills without corresponding `vllm-omni-` prefix
+- **Do NOT** hardcode version numbers in skill content (use `$VLLM_VERSION` variables)
+- **Do NOT** create circular references between skills
+- **Do NOT** exceed 300 lines in any SKILL.md body
 
 ## Version Variables
 
@@ -100,3 +119,11 @@ export PYTHON_VERSION="3.12"
 2. Run `python scripts/validate_all.py` before committing
 3. Test skill with actual agent + LLM if modifying workflow content
 4. Update `docs/CHANGELOG.md` for significant changes
+
+### Definition of Done
+
+A skill change is complete when:
+- [ ] `python scripts/validate_all.py` passes
+- [ ] SKILL.md under 300 lines
+- [ ] All markdown links resolve
+- [ ] Description includes "Use when" trigger context
