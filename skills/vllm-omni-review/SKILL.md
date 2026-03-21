@@ -53,35 +53,41 @@ Do not fetch broad extra context unless the diff or linked issue leaves real amb
 
 Use the title prefix and changed directories to decide whether a domain skill is required.
 
-| Signal | Action |
-|--------|--------|
-| `[Image]`, `[ImageGen]` | Use `vllm-omni-image-gen` |
-| `[Video]`, `[VideoGen]` | Use `vllm-omni-video-gen` |
-| `[Audio]`, `[TTS]` | Use `vllm-omni-audio-tts` |
-| `[Multimodal]` | Use `vllm-omni-multimodal` |
-| `[Distributed]` | Use `vllm-omni-distributed` |
-| `[Quantization]` | Use `vllm-omni-quantization` |
-| `[Performance]` | Use `vllm-omni-perf` |
-| `[Hardware]` or backend-specific code | Use `vllm-omni-hardware` |
-| `[API]` or `vllm_omni/entrypoints/` changes | Use `vllm-omni-api` |
-| `[CI]` | Use `vllm-omni-cicd` |
-| `[Model]` | Use `vllm-omni-contrib` |
+| Signal                                      | Action                       |
+| ------------------------------------------- | ---------------------------- |
+| `[Image]`, `[ImageGen]`                     | Use `vllm-omni-image-gen`    |
+| `[Video]`, `[VideoGen]`                     | Use `vllm-omni-video-gen`    |
+| `[Audio]`, `[TTS]`                          | Use `vllm-omni-audio-tts`    |
+| `[Multimodal]`                              | Use `vllm-omni-multimodal`   |
+| `[Distributed]`                             | Use `vllm-omni-distributed`  |
+| `[Quantization]`                            | Use `vllm-omni-quantization` |
+| `[Performance]`                             | Use `vllm-omni-perf`         |
+| `[Hardware]` or backend-specific code       | Use `vllm-omni-hardware`     |
+| `[API]` or `vllm_omni/entrypoints/` changes | Use `vllm-omni-api`          |
+| `[CI]`                                      | Use `vllm-omni-cicd`         |
+| `[Model]`                                   | Use `vllm-omni-contrib`      |
 
 If the PR spans multiple specialized areas, choose the primary skill first and load a secondary skill only when the diff crosses a real subsystem boundary.
 
 For multi-skill routing, hardware detection, and delegation rules, see [references/review-routing.md](references/review-routing.md).
 
-### Step 3: Load Only the Relevant Review Reference
+### Step 3: Load Only the Relevant Review References (and Required Outputs)
 
 Load targeted references based on the diff:
 
-| Diff Area | Load |
-|-----------|------|
-| `vllm_omni/engine/`, `vllm_omni/stages/`, `vllm_omni/connectors/`, `vllm_omni/diffusion/` | [references/pitfalls.md](references/pitfalls.md) |
-| Async, distributed coordination, validation, connector behavior | [references/code-patterns.md](references/code-patterns.md) |
-| Scheduler, stage boundaries, execution model, critical paths | [references/architecture.md](references/architecture.md) |
+| Diff Area                                                                                 | Load                                                       |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `vllm_omni/engine/`, `vllm_omni/stages/`, `vllm_omni/connectors/`, `vllm_omni/diffusion/` | [references/pitfalls.md](references/pitfalls.md)           |
+| Async, distributed coordination, validation, connector behavior                           | [references/code-patterns.md](references/code-patterns.md) |
+| Scheduler, stage boundaries, execution model, critical paths                              | [references/architecture.md](references/architecture.md)   |
+| High-risk changes (core logic, configs/params, error handling, concurrency/distributed, I/O) or `[Feature]` / `[Bugfix]` PRs | [references/tests-docs-checklist.md](references/tests-docs-checklist.md) |
 
 Avoid loading all three by default. Start with the one that matches the changed files or the most likely failure mode.
+
+If the tests/docs addendum is triggered, include in the review body:
+
+- A **coverage matrix** (change point → existing tests → gap → minimal add)
+- A **review addendum snippet** (environment + runtime estimate + short fill-in template)
 
 ### Step 4: Run the Critical Checks
 
