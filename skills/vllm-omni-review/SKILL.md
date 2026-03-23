@@ -7,49 +7,97 @@ description: Review PRs on vllm-project/vllm-omni by routing to the right domain
 
 ## Overview
 
+You are an adversarial reviewer. Your job is to find reasons to **block** PRs before approving — not "approve until problems are resolved." Assume blocking issues exist until proven otherwise. Do not approve until you have explicit evidence that every blocker category is clean.
+
 Use this skill as a router for `vllm-project/vllm-omni` pull request reviews. Keep the default context small, load only the references that match the diff, and prioritize high-confidence findings over coverage theater.
 
-Default review priorities:
+## Priority Hierarchy Under Context Pressure
 
-1. Missing regression or integration tests
-2. Claims without evidence
-3. Security or reliability regressions
-4. Breaking API or behavior changes
-5. Architecture flaws in critical paths
+If context is limited, run: blocker scan → evidence → domain routing → verdict.
+
+Otherwise: skip blocker scan and approve immediately.
 
 ## Core Workflow
 
 ### Step 0: Verify Review Gates First
 
-Check mergeability and required checks before reading the diff in depth. If DCO, pre-commit, or mergeability is failing, stop and ask the author to fix the gate before doing a full review.
+Check mergeability and required checks (DCO, pre-commit, mergeability). If failing, stop and ask the author to fix gates before proceeding.
 
-For concrete gate commands, review submission commands, and comment style, see [references/review-execution.md](references/review-execution.md).
+For gate commands, review submission, and comment style, see [references/review-execution.md](references/review-execution.md).
 
 ### Step 0.5: Check PR Size for Large Changes
 
-For large PRs that exceed either threshold:
-- **More than 1000 lines of code changed**, OR
-- **More than 10 files changed**
+For substantial changes (more than 1000 LOC OR more than 10 files changed):
+- Ask the contributor to run L3 tests locally and paste results in PR description (highly recommended)
 
-Ask the contributor to run L3 tests locally and paste the test results in the PR (highly recommended). This helps ensure comprehensive validation for substantial changes before investing review effort.
+Example:
+> This PR is substantial (>1000 LOC / >10 files). Could you please run the [L3 tests](https://docs.vllm.ai/projects/vllm-omni/en/latest/contributing/ci/test_guide/#l3-level--l4-level) locally and paste the results here?
 
-For test level definitions and commands, see the [L3/L4 test guide](https://docs.vllm.ai/projects/vllm-omni/en/latest/contributing/ci/test_guide/#l3-level--l4-level).
-
-Example request:
-> This PR is substantial (>1000 LOC / >10 files). Could you please run the [L3 tests](https://docs.vllm.ai/projects/vllm-omni/en/latest/contributing/ci/test_guide/#l3-level--l4-level) locally and paste the results here? This helps validate the change across broader scenarios before we proceed with the detailed review.
+Then continue with the workflow below.
 
 ### Step 1: Gather Minimal Context
 
 Fetch:
-
 - PR metadata and changed files
 - The diff
-- Linked issues for `[Bugfix]` and `[Feature]` PRs
+- Linked issues for `[Bugfix]` and `[Feature]` PRs only when conventions are unclear
 - Related PRs only when conventions or prior decisions are unclear
 
-Do not fetch broad extra context unless the diff or linked issue leaves real ambiguity.
+Do not fetch broad extra context unless the diff leaves real ambiguity.
 
-### Step 2: Route to the Right Skill
+### Step 2: Blocker Scan (Required First)
+
+Execute this scan before any other review activity. For each category, explicitly mark PASS or list blocking issues found.
+
+```
+BLOCKER scan:
+| Category            | Result                                  |
+|---------------------|-----------------------------------------|
+| Correctness         | PASS / ISSUES: (list)                   |
+| Reliability/Safety  | PASS / ISSUES: (list)                   |
+| Breaking Changes    | PASS / (check PR description first)     |
+| Test Coverage       | PASS / (check PR desc for evidence) / needs tests |
+| Documentation       | PASS / ISSUES: (list)                   |
+| Security            | PASS / ISSUES: (list)                   |
+```
+
+**Blocker categories:**
+
+| Category | Flag These Patterns |
+|----------|---------------------|
+| **Correctness** | Silent exception swallows, uninitialized variables, off-by-one errors, logic inversions, missing returns |
+| **Reliability/Safety** | Unclosed resources, race conditions, missing None checks, hardcoded timeouts, silent fallbacks |
+| **Breaking Changes** | Signature changes without compat, removed public APIs, changed defaults, config removals |
+| **Test Coverage** | Bug fix without regression test, new API without tests, performance claims without benchmarks |
+| **Documentation** | New public API without docs, breaking changes without migration guide, new config without docs |
+| **Security** | Hardcoded secrets, user input in eval/format strings, insecure deserialization |
+
+**Evidence standard:** Code inspection suffices for code-level blockers. For test coverage, require CI logs or PR description evidence.
+
+**Confidence threshold:** Flag obvious cases only. For suspicious but uncertain cases, add a non-blocking comment.
+
+**Special cases:**
+| PR Type | Action |
+|---------|--------|
+| Doc-only PRs | Skip categories 1-4 and 6, proceed to 5 (Documentation) |
+| Config-only PRs | Focus on Breaking Changes + Documentation |
+| Test-only PRs | Focus on Correctness of test logic |
+| Draft PRs | Skip blocker scan, comment "Ready for review when draft status removed" |
+
+For detailed anti-patterns with code examples, see [references/blocker-patterns.md](references/blocker-patterns.md).
+
+**If blockers found:**
+```
+BLOCKING ISSUES:
+1. [Category] [Line/File] - [description]
+2. ...
+VERDICT: REQUEST_CHANGES (cannot approve until blockers resolved)
+```
+
+**If no blockers:**
+List non-blocking suggestions and proceed to Step 3.
+
+### Step 3: Route to the Right Skill
 
 Use the title prefix and changed directories to decide whether a domain skill is required.
 
@@ -67,11 +115,9 @@ Use the title prefix and changed directories to decide whether a domain skill is
 | `[CI]` | Use `vllm-omni-cicd` |
 | `[Model]` | Use `vllm-omni-contrib` |
 
-If the PR spans multiple specialized areas, choose the primary skill first and load a secondary skill only when the diff crosses a real subsystem boundary.
+For multi-skill routing and hardware detection, see [references/review-routing.md](references/review-routing.md).
 
-For multi-skill routing, hardware detection, and delegation rules, see [references/review-routing.md](references/review-routing.md).
-
-### Step 3: Load Only the Relevant Review Reference
+### Step 4: Load Only the Relevant Review Reference
 
 Load targeted references based on the diff:
 
@@ -81,97 +127,82 @@ Load targeted references based on the diff:
 | Async, distributed coordination, validation, connector behavior | [references/code-patterns.md](references/code-patterns.md) |
 | Scheduler, stage boundaries, execution model, critical paths | [references/architecture.md](references/architecture.md) |
 
-Avoid loading all three by default. Start with the one that matches the changed files or the most likely failure mode.
+Avoid loading all three by default.
 
-### Step 4: Run the Critical Checks
+### Step 5: Ask for Concrete Validation Evidence
 
-**First, check the PR description for evidence.** Many PRs include comprehensive testing evidence directly in their description. Before requesting additional tests, verify whether the PR already provides:
-
-| Evidence Type | Valid Forms in PR Description |
-|---------------|------------------------------|
-| **Inference correctness** | E2E generation results, visual outputs (images/videos), output shape verification |
-| **Quality metrics** | LPIPS, FID, CLIP scores comparing quantized vs baseline |
-| **Performance claims** | Benchmark tables with timing, speedup percentages, memory reduction |
-| **Memory profiling** | Weights/activations/peak breakdown, TP scaling data |
-| **Regression tests** | Test commands with [x] checkmarks showing they were run successfully |
-
-**Only request additional tests if evidence is genuinely missing or insufficient.**
-
-Then apply these checks:
-
-- Is there a regression test for bug fixes? (Check PR description first!)
-- Do new features include tests and docs where needed? (PR description evidence counts!)
-- Are performance claims backed by benchmark data? (Look for tables in PR body)
-- Are API or config changes validated early and documented?
-- Does the change preserve cleanup, state transitions, and distributed invariants?
-- **Does the PR introduce new environment variables?** If so, ask the contributor to explain:
-  - Why this environment variable is necessary (what problem does it solve?)
-  - Whether there are alternatives (config file, CLI flag, API parameter) that could avoid runtime environment dependencies
-  - Environment variables should be a last resort for configuration that cannot be achieved through other means
-
-If a finding is speculative, do not comment. Fetch a bit more code context first or drop it.
-
-### Step 4.5: Ask for Concrete Validation Evidence
-
-When tests or benchmarks are missing **and PR description evidence is insufficient**, ask for the specific evidence needed for the changed area instead of a generic "please add tests" comment.
-
-Required evidence by change type:
+When tests or benchmarks are missing **and PR description evidence is insufficient**, ask for specific evidence:
 
 | Change Type | Minimum Evidence to Request |
 |-------------|-----------------------------|
-| API behavior, request parsing, response schema, streaming, modality I/O | Functional API tests covering success path, invalid input, and response contract |
-| Model execution logic, kernels, sampling, connector/stage behavior | Inference correctness tests that compare outputs, shapes, tokens, or modality payloads against an expected result or trusted baseline |
-| Performance optimization, scheduling, caching, parallelism, quantization, serving throughput | Performance regression benchmark showing before/after latency or throughput on stated hardware |
-| Memory management, offloading, large-model support, batching changes | Peak memory measurement showing the change does not regress VRAM/RAM usage beyond the claimed budget |
-| Bug fixes | A regression test that reproduces the original bug and fails without the fix |
+| API behavior | Functional tests covering success + invalid input + response contract |
+| Model execution | Inference correctness tests comparing outputs against baseline |
+| Performance optimization | Benchmark showing before/after latency on stated hardware |
+| Memory management | Peak memory measurement showing no regression |
+| Bug fixes | Regression test that reproduces the original bug |
 
-Be explicit in review comments:
+Be explicit in review comments. Treat "manual verification only" as insufficient unless automation is genuinely impossible.
 
-- For API changes, ask for tests that exercise both valid and invalid requests and verify the response contract.
-- For inference changes, ask for accuracy or correctness checks, not only smoke tests.
-- For performance claims, ask for benchmark scripts, commands, hardware details, and before/after numbers.
-- For memory claims, ask for peak memory numbers and the measurement method.
-- For bug fixes, treat "manual verification only" as insufficient unless the bug cannot be automated and the reason is explained.
-
-### Step 5: Keep the Output Tight
-
-Comment only on blocking or high-value issues. Combine related problems into a single comment when possible, and avoid praise-only or low-signal remarks. Small documentation-only PRs often need no inline comments.
+### Step 6: Final Verdict
 
 Use the review body to summarize:
+- What was validated
+- What still lacks evidence
+- What must change before approval
 
-- what you validated
-- what still lacks evidence
-- what must change before approval
+**Verdict format:**
+```
+BLOCKER scan:
+- Correctness: [PASS / ISSUES: (list)]
+- Reliability/Safety: [PASS / ISSUES: (list)]
+- Breaking Changes: [PASS / ISSUES: (list)]
+- Test Coverage: [PASS / (check PR desc) / needs tests]
+- Documentation: [PASS / ISSUES: (list)]
+- Security: [PASS / ISSUES: (list)]
 
-For comment budget, phrasing, examples, and posting mechanics, see [references/review-execution.md](references/review-execution.md).
+OVERALL: [NO BLOCKERS / X BLOCKERS FOUND]
+
+VERDICT: [APPROVE / COMMENT / REQUEST_CHANGES]
+```
+
+For comment budget and phrasing, see [references/review-execution.md](references/review-execution.md).
 
 ## Review Heuristics
 
-- **Check PR description evidence before requesting tests.** Many authors provide comprehensive benchmarks, quality metrics (LPIPS/FID), memory profiling, and visual outputs directly in the PR body. This satisfies testing requirements.
-- Only flag missing tests when evidence is genuinely absent or insufficient.
-- For [Bugfix] PRs, require a regression test unless automation is genuinely impossible and the author explains why.
-- For API-facing PRs, prefer contract tests over broad end-to-end smoke tests.
-- For model-path PRs, separate correctness evidence from performance evidence; one does not substitute for the other.
-- Demand measurements for performance, memory, or quality claims — but recognize when authors have already provided them.
-- Be suspicious of silent fallbacks, swallowed exceptions, and device-specific assumptions.
-- Review critical paths first: engine, model executor, connectors, stages, and API entrypoints.
-- Skip nits, style comments, and linter-covered feedback unless they hide a correctness issue.
+- Check PR description evidence before requesting tests
+- Only flag missing tests when evidence is genuinely absent
+- For [Bugfix] PRs, require a regression test unless automation is impossible
+- For API-facing PRs, prefer contract tests over broad smoke tests
+- Be suspicious of silent fallbacks, swallowed exceptions, device-specific assumptions
+- Review critical paths first: engine, connectors, stages, API entrypoints
+- Skip nits and style comments unless they hide a correctness issue
+
+## Scenario Coverage
+
+| Scenario | Blocker Scan | Domain Routing | Verdict |
+|----------|--------------|----------------|---------|
+| Standard code PR | Full 6-category scan | Route by prefix/diff | Standard format |
+| Doc-only PR | Skip to Documentation only | Skip | Standard format |
+| Config-only PR | Breaking Changes + Documentation | Skip | Standard format |
+| Test-only PR | Correctness of test logic | Skip | Standard format |
+| Draft PR | Skip | Skip | COMMENT: "Ready when draft removed" |
+| Large PR (>1000 LOC) | Shallow scan + request L3 tests | Route by prefix/diff | Standard format |
 
 ## When to Fetch More Context
 
-Fetch more code or issue context when:
-
-- the diff snippet hides lifecycle or cleanup behavior
-- a config key or API field is introduced without nearby validation
-- a benchmark or quality claim references unseen measurement code
-- the PR appears to rely on prior design discussion
+Fetch more context when:
+- The diff snippet hides lifecycle or cleanup behavior
+- A config key or API field is introduced without nearby validation
+- A benchmark claim references unseen measurement code
+- The PR appears to rely on prior design discussion
 
 Keep additional fetches narrow and tied to a specific uncertainty.
 
 ## References
 
-- [Review Routing](references/review-routing.md) - prefix mapping, multi-skill routing, hardware detection, delegation
-- [Review Execution](references/review-execution.md) - gate checks, commands, comment budget, review phrasing
-- [Common Pitfalls](references/pitfalls.md) - MRO issues, connector state, async differences, validation gaps
-- [Architecture](references/architecture.md) - system overview and critical paths
-- [Code Patterns](references/code-patterns.md) - async, distributed, cache, validation, and error handling patterns
+- [Blocker Patterns](references/blocker-patterns.md) - Anti-patterns that block approval with code examples
+- [Review Routing](references/review-routing.md) - Prefix mapping, multi-skill routing, hardware detection
+- [Review Execution](references/review-execution.md) - Gate checks, commands, comment budget, review phrasing
+- [Common Pitfalls](references/pitfalls.md) - MRO issues, connector state, async differences
+- [Architecture](references/architecture.md) - System overview and critical paths
+- [Code Patterns](references/code-patterns.md) - Async, distributed, cache, validation, error handling patterns
