@@ -1,0 +1,90 @@
+# GitHub: list **all** open `bug` issues (paginated)
+
+The [web issues search](https://github.com/vllm-project/vllm-omni/issues?q=is%3Aissue%20state%3Aopen%20label%3Abug) only shows one page. For a **complete** list, use the **REST API** and paginate until a page returns fewer than `per_page` items (or zero).
+
+## Endpoint
+
+`GET https://api.github.com/repos/vllm-project/vllm-omni/issues`
+
+Query:
+
+| Param | Value |
+|-------|--------|
+| `state` | `open` |
+| `labels` | `bug` |
+| `per_page` | `100` (max) |
+| `page` | `1`, `2`, … |
+
+**Note:** This endpoint can return **pull requests** that look like issues. Filter with `select(.pull_request == null)` in `jq`.
+
+## Authentication
+
+- Optional but recommended: `GITHUB_TOKEN` (fine-grained or classic `public_repo`) to avoid low unauthenticated rate limits.
+- Header: `Authorization: Bearer $GITHUB_TOKEN`
+- Header: `Accept: application/vnd.github+json`
+- Optional: `X-GitHub-Api-Version: 2022-11-28`
+
+If `GITHUB_TOKEN` is missing, you may still call the API for a public repo; on `403` / rate limit, **prompt the user** to set `GITHUB_TOKEN` in the environment (do not collect secrets in chat), analogous to **`BUILDKITE_TOKEN` / `BUILDKITE_API_TOKEN`** for Buildkite.
+
+## Bash: fetch every page into one JSON array
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+REPO="vllm-project/vllm-omni"
+LABELS="bug"
+PER_PAGE=100
+PAGE=1
+TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT
+echo '[]' >"$TMP"
+
+HDR=(-H "Accept: application/vnd.github+json")
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  HDR+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+fi
+
+while true; do
+  URL="https://api.github.com/repos/${REPO}/issues?state=open&labels=${LABELS}&per_page=${PER_PAGE}&page=${PAGE}"
+  RESP=$(curl -sS "${HDR[@]}" "$URL")
+  # empty array or error object
+  N=$(echo "$RESP" | jq 'if type == "array" then length else 0 end')
+  if [[ "$N" -eq 0 ]]; then
+    break
+  fi
+  jq -s '.[0] + .[1]' "$TMP" <(echo "$RESP") >"${TMP}.new" && mv "${TMP}.new" "$TMP"
+  if [[ "$N" -lt "$PER_PAGE" ]]; then
+    break
+  fi
+  PAGE=$((PAGE + 1))
+done
+
+# Drop PRs; keep only real issues
+jq '[.[] | select(.pull_request == null)]' "$TMP"
+```
+
+## Filter “current month” by `created_at`
+
+Assume report month is `2026-03` (derive from user locale or explicit `REPORT_MONTH=YYYY-MM`):
+
+```bash
+jq --arg prefix "2026-03" '[.[] | select(.created_at | startswith($prefix))]'
+```
+
+## Report row shape (for Markdown table)
+
+```bash
+jq -r '.[] | "| [#\(.number)](\(.html_url)) | \(.title | gsub("\\|"; "/")) | \(.created_at[0:10]) | open | @" + .user.login + " |"'
+```
+
+(Escape `|` in titles as needed for Markdown.)
+
+## Alternative: GitHub CLI
+
+If `gh` is installed and authenticated:
+
+```bash
+gh issue list --repo vllm-project/vllm-omni --state open --label bug --limit 10000 --json number,title,createdAt,author
+```
+
+`--limit` can be set high; `gh` paginates internally.
