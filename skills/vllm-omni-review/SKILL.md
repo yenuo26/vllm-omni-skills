@@ -25,6 +25,19 @@ Check mergeability and required checks before reading the diff in depth. If DCO,
 
 For concrete gate commands, review submission commands, and comment style, see [references/review-execution.md](references/review-execution.md).
 
+### Step 0.5: Check PR Size for Large Changes
+
+For large PRs that exceed either threshold:
+- **More than 1000 lines of code changed**, OR
+- **More than 10 files changed**
+
+Ask the contributor to run L3 tests locally and paste the test results in the PR (highly recommended). This helps ensure comprehensive validation for substantial changes before investing review effort.
+
+For test level definitions and commands, see the [L3/L4 test guide](https://docs.vllm.ai/projects/vllm-omni/en/latest/contributing/ci/test_guide/#l3-level--l4-level).
+
+Example request:
+> This PR is substantial (>1000 LOC / >10 files). Could you please run the [L3 tests](https://docs.vllm.ai/projects/vllm-omni/en/latest/contributing/ci/test_guide/#l3-level--l4-level) locally and paste the results here? This helps validate the change across broader scenarios before we proceed with the detailed review.
+
 ### Step 1: Gather Minimal Context
 
 Fetch:
@@ -40,45 +53,91 @@ Do not fetch broad extra context unless the diff or linked issue leaves real amb
 
 Use the title prefix and changed directories to decide whether a domain skill is required.
 
-| Signal | Action |
-|--------|--------|
-| `[Model]`, `[New Model]`, `[Image]`, `[ImageGen]`, `[Video]`, `[VideoGen]`, `[Diffusion]` | → [Diffusion Model PR Review](#diffusion-model-pr-review) |
-| `[Audio]`, `[TTS]` | Use `vllm-omni-audio-tts` |
-| `[Multimodal]` | Use `vllm-omni-multimodal` |
-| `[Distributed]` | Use `vllm-omni-distributed` |
-| `[Quantization]` | Use `vllm-omni-quantization` |
-| `[Performance]` | Use `vllm-omni-perf` |
-| `[Hardware]` or backend-specific code | Use `vllm-omni-hardware` |
-| `[API]` or `vllm_omni/entrypoints/` changes | Use `vllm-omni-api` |
-| `[CI]` | Use `vllm-omni-cicd` |
+| Signal                                      | Action                       |
+| ------------------------------------------- | ---------------------------- |
+| `[Image]`, `[ImageGen]`                     | Use `vllm-omni-image-gen`    |
+| `[Video]`, `[VideoGen]`                     | Use `vllm-omni-video-gen`    |
+| `[Audio]`, `[TTS]`                          | Use `vllm-omni-audio-tts`    |
+| `[Multimodal]`                              | Use `vllm-omni-multimodal`   |
+| `[Distributed]`                             | Use `vllm-omni-distributed`  |
+| `[Quantization]`                            | Use `vllm-omni-quantization` |
+| `[Performance]`                             | Use `vllm-omni-perf`         |
+| `[Hardware]` or backend-specific code       | Use `vllm-omni-hardware`     |
+| `[API]` or `vllm_omni/entrypoints/` changes | Use `vllm-omni-api`          |
+| `[CI]`                                      | Use `vllm-omni-cicd`         |
+| `[Model]`                                   | Use `vllm-omni-contrib`      |
 
 If the PR spans multiple specialized areas, choose the primary skill first and load a secondary skill only when the diff crosses a real subsystem boundary.
 
 For multi-skill routing, hardware detection, and delegation rules, see [references/review-routing.md](references/review-routing.md).
 
-### Step 3: Load Only the Relevant Review Reference
+### Step 3: Load Only the Relevant Review References (and Required Outputs)
 
 Load targeted references based on the diff:
 
-| Diff Area | Load |
-|-----------|------|
-| `vllm_omni/engine/`, `vllm_omni/stages/`, `vllm_omni/connectors/`, `vllm_omni/diffusion/` | [references/pitfalls.md](references/pitfalls.md) |
-| Async, distributed coordination, validation, connector behavior | [references/code-patterns.md](references/code-patterns.md) |
-| Scheduler, stage boundaries, execution model, critical paths | [references/architecture.md](references/architecture.md) |
+| Diff Area                                                                                 | Load                                                       |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `vllm_omni/engine/`, `vllm_omni/stages/`, `vllm_omni/connectors/`, `vllm_omni/diffusion/` | [references/pitfalls.md](references/pitfalls.md)           |
+| Async, distributed coordination, validation, connector behavior                           | [references/code-patterns.md](references/code-patterns.md) |
+| Scheduler, stage boundaries, execution model, critical paths                              | [references/architecture.md](references/architecture.md)   |
+| High-risk changes (core logic, configs/params, error handling, concurrency/distributed, I/O) or `[Feature]` / `[Bugfix]` PRs | [references/tests-docs-checklist.md](references/tests-docs-checklist.md) |
 
 Avoid loading all three by default. Start with the one that matches the changed files or the most likely failure mode.
 
+If the tests/docs addendum is triggered, include in the review body:
+
+- A **coverage matrix** (change point → existing tests → gap → minimal add)
+- A **review addendum snippet** (environment + runtime estimate + short fill-in template)
+
 ### Step 4: Run the Critical Checks
 
-Apply these checks to every substantive PR:
+**First, check the PR description for evidence.** Many PRs include comprehensive testing evidence directly in their description. Before requesting additional tests, verify whether the PR already provides:
 
-- Is there a regression test for bug fixes?
-- Do new features include tests and docs where needed?
-- Are performance claims backed by benchmark data?
+| Evidence Type | Valid Forms in PR Description |
+|---------------|------------------------------|
+| **Inference correctness** | E2E generation results, visual outputs (images/videos), output shape verification |
+| **Quality metrics** | LPIPS, FID, CLIP scores comparing quantized vs baseline |
+| **Performance claims** | Benchmark tables with timing, speedup percentages, memory reduction |
+| **Memory profiling** | Weights/activations/peak breakdown, TP scaling data |
+| **Regression tests** | Test commands with [x] checkmarks showing they were run successfully |
+
+**Only request additional tests if evidence is genuinely missing or insufficient.**
+
+Then apply these checks:
+
+- Is there a regression test for bug fixes? (Check PR description first!)
+- Do new features include tests and docs where needed? (PR description evidence counts!)
+- Are performance claims backed by benchmark data? (Look for tables in PR body)
 - Are API or config changes validated early and documented?
 - Does the change preserve cleanup, state transitions, and distributed invariants?
+- **Does the PR introduce new environment variables?** If so, ask the contributor to explain:
+  - Why this environment variable is necessary (what problem does it solve?)
+  - Whether there are alternatives (config file, CLI flag, API parameter) that could avoid runtime environment dependencies
+  - Environment variables should be a last resort for configuration that cannot be achieved through other means
 
 If a finding is speculative, do not comment. Fetch a bit more code context first or drop it.
+
+### Step 4.5: Ask for Concrete Validation Evidence
+
+When tests or benchmarks are missing **and PR description evidence is insufficient**, ask for the specific evidence needed for the changed area instead of a generic "please add tests" comment.
+
+Required evidence by change type:
+
+| Change Type | Minimum Evidence to Request |
+|-------------|-----------------------------|
+| API behavior, request parsing, response schema, streaming, modality I/O | Functional API tests covering success path, invalid input, and response contract |
+| Model execution logic, kernels, sampling, connector/stage behavior | Inference correctness tests that compare outputs, shapes, tokens, or modality payloads against an expected result or trusted baseline |
+| Performance optimization, scheduling, caching, parallelism, quantization, serving throughput | Performance regression benchmark showing before/after latency or throughput on stated hardware |
+| Memory management, offloading, large-model support, batching changes | Peak memory measurement showing the change does not regress VRAM/RAM usage beyond the claimed budget |
+| Bug fixes | A regression test that reproduces the original bug and fails without the fix |
+
+Be explicit in review comments:
+
+- For API changes, ask for tests that exercise both valid and invalid requests and verify the response contract.
+- For inference changes, ask for accuracy or correctness checks, not only smoke tests.
+- For performance claims, ask for benchmark scripts, commands, hardware details, and before/after numbers.
+- For memory claims, ask for peak memory numbers and the measurement method.
+- For bug fixes, treat "manual verification only" as insufficient unless the bug cannot be automated and the reason is explained.
 
 ### Step 5: Keep the Output Tight
 
@@ -94,8 +153,12 @@ For comment budget, phrasing, examples, and posting mechanics, see [references/r
 
 ## Review Heuristics
 
-- Treat missing tests as the default highest-priority issue.
-- Demand measurements for performance, memory, or quality claims.
+- **Check PR description evidence before requesting tests.** Many authors provide comprehensive benchmarks, quality metrics (LPIPS/FID), memory profiling, and visual outputs directly in the PR body. This satisfies testing requirements.
+- Only flag missing tests when evidence is genuinely absent or insufficient.
+- For [Bugfix] PRs, require a regression test unless automation is genuinely impossible and the author explains why.
+- For API-facing PRs, prefer contract tests over broad end-to-end smoke tests.
+- For model-path PRs, separate correctness evidence from performance evidence; one does not substitute for the other.
+- Demand measurements for performance, memory, or quality claims — but recognize when authors have already provided them.
 - Be suspicious of silent fallbacks, swallowed exceptions, and device-specific assumptions.
 - Review critical paths first: engine, model executor, connectors, stages, and API entrypoints.
 - Skip nits, style comments, and linter-covered feedback unless they hide a correctness issue.

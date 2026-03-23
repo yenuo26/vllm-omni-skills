@@ -120,6 +120,8 @@ print(outputs[0].request_output[0].text)
 
 ## Stage Configuration (Qwen3-TTS)
 
+**Update (2026-03-15):** `async_scheduling` is now **enabled by default** for Qwen3-TTS models, improving first-packet latency and throughput.
+
 Default stage config uses async_chunk streaming (`qwen3_tts.yaml`). Key knobs:
 
 | Config | Description | Default |

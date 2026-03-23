@@ -1,6 +1,6 @@
 ---
 name: vllm-omni-distributed
-description: Configure distributed inference with vLLM-Omni using tensor parallelism, pipeline parallelism, OmniConnector disaggregation, and Ray. Use when deploying models across multiple GPUs or nodes, setting up disaggregated execution, or scaling inference horizontally.
+description: Configure and extend distributed inference in vLLM-Omni using tensor parallelism, pipeline parallelism, OmniConnector disaggregation, connector backends, and Ray. Use when deploying models across multiple GPUs or nodes, setting up disaggregated execution, developing OmniConnector backends, or scaling inference horizontally.
 ---
 
 # vLLM-Omni Distributed Inference
@@ -68,6 +68,15 @@ Each stage can be scaled independently:
 - Scale each stage based on its bottleneck independently
 - Mix GPU types (e.g., cheaper GPUs for encoding, premium GPUs for generation)
 - Better GPU utilization by matching capacity to demand per stage
+
+## OmniConnector Development
+
+Use this skill for connector implementation work as well as connector usage.
+
+- Refer to `SharedMemoryConnector`, `MooncakeStoreConnector`, `YuanrongConnector`, and `MooncakeTransferEngineConnector` as implementation references before adding a new backend
+- Keep connector edge config role-neutral in YAML; let runtime inject sender or receiver details
+- Validate connector changes from the smallest contract outward: basic `put/get`, config loading, stage flow, then KV cache flow
+- Support both metadata-driven and key-only retrieval paths when designing connector behavior
 
 ## Multi-Node with Ray
 
@@ -146,4 +155,5 @@ vllm serve <model> --omni --tensor-parallel-size 8
 ## References
 
 - For disaggregation architecture details, see [references/disaggregation.md](references/disaggregation.md)
+- For OmniConnector backend contract, config wiring, and validation, see [references/connector-development.md](references/connector-development.md)
 - For Ray execution setup, see [references/ray-execution.md](references/ray-execution.md)

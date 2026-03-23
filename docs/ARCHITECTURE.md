@@ -54,6 +54,7 @@ vllm-omni-skills/
     │   ├── SKILL.md
     │   └── references/
     │       ├── disaggregation.md
+    │       ├── connector-development.md
     │       └── ray-execution.md
     ├── vllm-omni-perf/
     │   ├── SKILL.md
