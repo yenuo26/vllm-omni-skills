@@ -96,17 +96,19 @@ Paste the emitted **Per-job test execution (pytest)** Markdown table into the re
 ### Step 2c: CI details (success rate and average duration)
 
 1. From the skill directory, run [scripts/buildkite_build_stats.py](scripts/buildkite_build_stats.py) with `BUILDKITE_TOKEN` or `BUILDKITE_API_TOKEN` set. The script uses `requests` (`pip install requests` if needed).
-2. Pass `--from` / `--to` as `YYYY-MM-DD` so the window matches the report period (e.g. current calendar month in UTC, or the same range as the nightly build under review).
+2. Optional: pass `--from` / `--to` as `YYYY-MM-DD` (UTC, inclusive) for a custom window. If **both are omitted**, the script uses **the current UTC calendar month through today** (month-to-date). To override one past month, pass both dates (e.g. `--from 2025-01-01 --to 2025-01-31`).
 3. Add `--markdown` to print a ready-to-paste **CI details** block (Markdown table + short definitions).
 
 ```bash
 pip install requests   # if not already installed
-python scripts/buildkite_build_stats.py --from 2026-03-01 --to 2026-03-23 --markdown
+python scripts/buildkite_build_stats.py --markdown
+# Or an explicit UTC window (must pass both --from and --to together):
+# python scripts/buildkite_build_stats.py --from YYYY-MM-DD --to YYYY-MM-DD --markdown
 ```
 
 4. Paste the script output (from `## CI details` through the table) into the report. **Do not** hand-edit numbers; they must match the script run.
 
-See [references/buildkite-api.md](references/buildkite-api.md) for how builds are classified (non-main / main non-nightly / main nightly).
+See [references/buildkite-api.md](references/buildkite-api.md) for how builds are classified into **ready** / **merge** / **nightly** buckets.
 
 ### Step 3: Fetch **all** open bug issues (paginated)
 
@@ -125,7 +127,7 @@ Use the **Report template** below. Fill:
 - Overall pipeline state (optionally note upload-only failures **separately** from test jobs)
 - Summary counts from **reportable jobs** only
 - Per-job pytest table from Step 2b (aggregate + per-failure rows)
-- **CI details** from Step 2c (`buildkite_build_stats.py --markdown`)
+- **CI details** from Step 2c (`buildkite_build_stats.py --markdown`, or with explicit `--from` / `--to`)
 - **Unknown** if data was incomplete
 
 ## Report Template (Markdown)

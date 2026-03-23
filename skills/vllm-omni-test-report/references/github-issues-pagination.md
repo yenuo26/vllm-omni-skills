@@ -65,10 +65,10 @@ jq '[.[] | select(.pull_request == null)]' "$TMP"
 
 ## Filter “current month” by `created_at`
 
-Assume report month is `2026-03` (derive from user locale or explicit `REPORT_MONTH=YYYY-MM`):
+Use a `YYYY-MM` prefix (derive from user locale, explicit `REPORT_MONTH=YYYY-MM`, or the report period). Example month `2025-01`:
 
 ```bash
-jq --arg prefix "2026-03" '[.[] | select(.created_at | startswith($prefix))]'
+jq --arg prefix "2025-01" '[.[] | select(.created_at | startswith($prefix))]'
 ```
 
 ## Report row shape (for Markdown table)

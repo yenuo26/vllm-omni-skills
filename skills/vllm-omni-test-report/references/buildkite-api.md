@@ -80,15 +80,15 @@ The script [scripts/buildkite_build_stats.py](../scripts/buildkite_build_stats.p
 | Bucket | Rule |
 |--------|------|
 | ready | `branch != "main"` |
-| merge | `branch == "main"` and (`source == "schedule"` or message suggests scheduled/nightly) |
-| nightly | `branch == "main"` and not nightly |
+| merge | `branch == "main"` and **not** the scheduled-nightly case below (typical merged-PR `main` builds) |
+| nightly | `branch == "main"` and (`source == "schedule"` or message suggests scheduled/nightly) |
 
 **Success rate** (per bucket): `passed / (passed + failed)` only. Counts of `canceled`, `blocked`, etc. are reported separately.
 
 **Average wall time** (per bucket): among builds counted as `passed` or `failed`, those with both `created_at` and
 `finished_at`, compute `finished_at - created_at` in seconds and take the arithmetic mean.
 
-Run with `BUILDKITE_TOKEN` or `BUILDKITE_API_TOKEN` and optional `--markdown` for a report-ready **CI details** table.
+Run with `BUILDKITE_TOKEN` or `BUILDKITE_API_TOKEN` and optional `--markdown`. **`--from` / `--to`** (`YYYY-MM-DD`, UTC, inclusive) are optional: if both are omitted, the script uses the **current UTC month through today**; if you set one, set both.
 
 ## Example: jq one-liner for latest scheduled nightly number
 

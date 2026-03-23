@@ -82,7 +82,7 @@ def latest_scheduled_nightly_number(token: str) -> int:
     for b in builds:
         if re.search(r"scheduled\s+nightly", b.get("message") or "", re.I):
             return int(b["number"])
-    raise SystemExit("No scheduled nightly build found on main (per_page=50).")
+    sys.exit("No scheduled nightly build found on main (per_page=50).")
 
 
 def should_skip_job(name: str) -> bool:
@@ -168,10 +168,18 @@ def emit_markdown(build: dict[str, Any], token: str) -> None:
                 f"HTTP {e.code} fetching log | [open]({link}) |"
             )
             continue
-        except Exception as e:  # noqa: BLE001
+        except urllib.error.URLError as e:
+            reason = getattr(e, "reason", None)
+            detail = str(reason) if reason is not None else str(e)
             print(
                 f"| {name} | (log fetch) | {md_cell(state)} | "
-                f"{md_cell(str(e))} | [open]({link}) |"
+                f"URL error: {md_cell(detail)} | [open]({link}) |"
+            )
+            continue
+        except TimeoutError as e:
+            print(
+                f"| {name} | (log fetch) | {md_cell(state)} | "
+                f"timeout: {md_cell(str(e))} | [open]({link}) |"
             )
             continue
 

@@ -9,16 +9,16 @@ Fetch vllm-omni builds from the Buildkite REST API for a date range and compute:
 Three buckets (display names in reports):
 
   1. ready — non-`main` branches
-  2. nightly — `main`, not scheduled/nightly
-  3. merge — `main`, scheduled/nightly
+  2. merge — `main`, ordinary runs (e.g. merged PRs), not the scheduled nightly bucket
+  3. nightly — `main`, scheduled / message-heuristic nightly pipeline
 
 Usage:
 
   Set BUILDKITE_API_TOKEN (or BUILDKITE_TOKEN).
   pip install requests  # if missing
-  python scripts/buildkite_build_stats.py [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--markdown]
+  python scripts/buildkite_build_stats.py [--from YYYY-MM-DD --to YYYY-MM-DD] [--markdown]
 
-Default range: 2026-03-01 through 2026-03-17 (adjust to the reporting month or user range).
+If `--from` / `--to` are both omitted, the window is the current UTC calendar month through today (month-start 00:00 UTC to today end UTC). If you pass one, pass both (UTC dates, inclusive).
 """
 
 from __future__ import annotations
@@ -46,6 +46,13 @@ PIPELINE_SLUG = "vllm-omni"
 FINISHED_STATES = {"passed", "failed", "canceled", "blocked", "skipped", "not_run"}
 SUCCESS_STATE = "passed"
 FAIL_STATE = "failed"
+
+
+def default_created_range_utc() -> tuple[str, str]:
+    """First day of current UTC month through today (UTC), as YYYY-MM-DD strings."""
+    today = datetime.now(timezone.utc).date()
+    start = today.replace(day=1)
+    return start.isoformat(), today.isoformat()
 
 
 def parse_buildkite_time(s: str | None) -> datetime | None:
@@ -185,16 +192,22 @@ def main() -> int:
     parser.add_argument(
         "--from",
         dest="created_from",
-        default="2026-03-01",
+        default=None,
         metavar="YYYY-MM-DD",
-        help="Start date for created_at (default: 2026-03-01)",
+        help=(
+            "Start date for Buildkite created_at filter (UTC, inclusive). "
+            "Omit both --from and --to to use current UTC month through today."
+        ),
     )
     parser.add_argument(
         "--to",
         dest="created_to",
-        default="2026-03-17",
+        default=None,
         metavar="YYYY-MM-DD",
-        help="End date for created_at (default: 2026-03-17)",
+        help=(
+            "End date for Buildkite created_at filter (UTC, inclusive). "
+            "Omit both --from and --to to use current UTC month through today."
+        ),
     )
     parser.add_argument(
         "--verbose",
@@ -208,6 +221,16 @@ def main() -> int:
         help="Also emit a Markdown block for the report (CI details section).",
     )
     args = parser.parse_args()
+
+    if args.created_from is None and args.created_to is None:
+        args.created_from, args.created_to = default_created_range_utc()
+    elif args.created_from is None or args.created_to is None:
+        print(
+            "buildkite_build_stats.py: pass both --from and --to, or omit both "
+            "(defaults to current UTC month through today).",
+            file=sys.stderr,
+        )
+        return 2
 
     token = get_api_token()
     if not token:
@@ -261,8 +284,8 @@ def main() -> int:
     # Print three buckets: success rate and average duration
     labels = {
         "non_main": "ready",
-        "main_non_nightly": "nightly",
-        "main_nightly": "merge",
+        "main_non_nightly": "merge",
+        "main_nightly": "nightly",
     }
     keys_order = ("non_main", "main_non_nightly", "main_nightly")
     print(
