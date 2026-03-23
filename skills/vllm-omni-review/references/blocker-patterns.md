@@ -307,7 +307,7 @@ async def create_item(self, request):
 
 **Required fix:** Validate responses match schema and handle errors explicitly.
 
-**Cross-ref:** See [Error Handling Pattern](code-patterns.md#error-handling-pattern-pattern) for proper error handling patterns.
+**Cross-ref:** See [Error Handling Pattern](code-patterns.md#error-handling-pattern) for proper error handling patterns.
 
 ---
 
@@ -338,7 +338,7 @@ data = pickle.loads(user_input)
 
 **Required fix:** Never use `pickle.loads()` on untrusted data. Use safe deserialization libraries.
 
-**Cross-ref:** See [Error Handling Pattern](code-patterns.md#error-handling-pattern-pattern) for safe error handling patterns.
+**Cross-ref:** See [Error Handling Pattern](code-patterns.md#error-handling-pattern) for safe error handling patterns.
 
 ---
 

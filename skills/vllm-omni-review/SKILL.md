@@ -186,7 +186,7 @@ For comment budget and phrasing, see [references/review-execution.md](references
 | Doc-only PR | Skip to Documentation only | Skip | Standard format |
 | Config-only PR | Breaking Changes + Documentation | Skip | Standard format |
 | Test-only PR | Correctness of test logic | Skip | Standard format |
-| Draft PR | Do not block; add non-blocking comment | Skip | COMMENT: "Ready for full review when draft removed" |
+| Draft PR | Run scan (non-blocking); offer preliminary feedback on request | Skip | COMMENT: "Ready for full review when draft removed" |
 | Large PR (>1000 LOC) | Shallow scan + request L3 tests | Route by prefix/diff | Standard format |
 
 ## When to Fetch More Context
