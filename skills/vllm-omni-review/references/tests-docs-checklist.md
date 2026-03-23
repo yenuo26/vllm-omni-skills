@@ -69,3 +69,42 @@ Commands: <cmd1>; <cmd2>
 Runtime: ~<N> min
 ```
 
+### 5) Performance Comparison Test Checklist
+
+**Required for:** `[Feature]` PRs that affect performance characteristics, and all `[Performance]` PRs.
+
+Before approving, verify the PR includes performance comparison tests that measure the change against baseline (without the change).
+
+**Minimum Requirements:**
+
+- [ ] **Before/after benchmark** — Quantitative comparison on same hardware
+- [ ] **Consistent environment** — Same GPU, driver, model, batch size, resolution/steps for both runs
+- [ ] **Key metrics reported:**
+  - [ ] Latency (e2e generation time)
+  - [ ] Throughput (requests/sec or tokens/sec, where applicable)
+  - [ ] Peak memory usage (VRAM in GB)
+- [ ] **Methodology documented** — Commands, parameters, prompts/dataset used
+
+**Evidence format to request when missing:**
+
+```
+⚠️ **Performance Comparison Test Required**
+
+This PR includes a [feature/performance enhancement] that may affect performance.
+Please provide benchmark comparison:
+
+| Metric           | Baseline (w/o change) | With Change | Delta |
+|------------------|----------------------|-------------|-------|
+| Latency (e2e)    | <value> ms           | <value> ms  | +/- % |
+| Throughput       | <value> req/s        | <value>     | +/- % |
+| Peak VRAM        | <value> GB           | <value> GB  | +/- % |
+
+Test environment: <GPU model>, <CUDA version>, <model>, <batch/resolution/steps>
+Commands: <exact commands used>
+```
+
+**Exceptions:**
+- Doc-only or config-only changes without performance impact
+- Bug fixes that only correct logic without changing performance characteristics
+- Changes gated behind a new flag that defaults to disabled (document expected perf when enabled)
+

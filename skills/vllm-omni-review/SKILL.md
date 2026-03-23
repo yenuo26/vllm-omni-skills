@@ -139,8 +139,11 @@ When tests or benchmarks are missing **and PR description evidence is insufficie
 | API behavior | Functional tests covering success + invalid input + response contract |
 | Model execution | Inference correctness tests comparing outputs against baseline |
 | Performance optimization | Benchmark showing before/after latency on stated hardware |
+| New feature (performance-affecting) | Performance comparison test: baseline vs. with change (latency, throughput, VRAM) |
 | Memory management | Peak memory measurement showing no regression |
 | Bug fixes | Regression test that reproduces the original bug |
+
+For `[Feature]` PRs affecting performance or `[Performance]` PRs, use the checklist in [references/tests-docs-checklist.md](references/tests-docs-checklist.md) section 5.
 
 Be explicit in review comments. Treat "manual verification only" as insufficient unless automation is genuinely impossible.
 
@@ -351,5 +354,4 @@ features together and asserts output validity + reports latency + VRAM.
 - [Common Pitfalls](references/pitfalls.md) - MRO issues, connector state, async differences
 - [Architecture](references/architecture.md) - System overview and critical paths
 - [Code Patterns](references/code-patterns.md) - Async, distributed, cache, validation, error handling patterns
-- [Bug Test Coverage](references/bug-test-coverage.md) - Regression test requirements for bug fixes
 - [Diffusion PR Requirements](references/diffusion-pr-requirements.md) - PR body requirements for diffusion model contributions
