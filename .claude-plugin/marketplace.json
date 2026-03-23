@@ -6,104 +6,103 @@
   "plugins": [
     {
       "name": "vllm-omni-api",
-      "source": "./vllm-omni-api",
+      "source": "./plugins/vllm-omni-api",
       "description": "OpenAI-compatible API client integration for vLLM-Omni.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-audio-tts",
-      "source": "./vllm-omni-audio-tts",
+      "source": "./plugins/vllm-omni-audio-tts",
       "description": "Audio generation and TTS guidance for vLLM-Omni.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-cicd",
-      "source": "./vllm-omni-cicd",
+      "source": "./plugins/vllm-omni-cicd",
       "description": "CI/CD pipelines for vLLM-Omni model deployments.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-contrib",
-      "source": "./vllm-omni-contrib",
+      "source": "./plugins/vllm-omni-contrib",
       "description": "Contributing new models and development workflow for vLLM-Omni.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-distributed",
-      "source": "./vllm-omni-distributed",
+      "source": "./plugins/vllm-omni-distributed",
       "description": "Distributed inference, disaggregation, and Ray for vLLM-Omni.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-hardware",
-      "source": "./vllm-omni-hardware",
+      "source": "./plugins/vllm-omni-hardware",
       "description": "Hardware backend guidance for CUDA, ROCm, NPU, and XPU.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-image-gen",
-      "source": "./vllm-omni-image-gen",
+      "source": "./plugins/vllm-omni-image-gen",
       "description": "Image generation and editing guidance for vLLM-Omni.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-multimodal",
-      "source": "./vllm-omni-multimodal",
+      "source": "./plugins/vllm-omni-multimodal",
       "description": "End-to-end omni-modality model workflows for vLLM-Omni.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-perf",
-      "source": "./vllm-omni-perf",
+      "source": "./plugins/vllm-omni-perf",
       "description": "Performance tuning, benchmarking, and acceleration for vLLM-Omni.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-quantization",
-      "source": "./vllm-omni-quantization",
+      "source": "./plugins/vllm-omni-quantization",
       "description": "Quantization workflows and troubleshooting for vLLM-Omni.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-recipe",
-      "source": "./vllm-omni-recipe",
+      "source": "./plugins/vllm-omni-recipe",
       "description": "Recipe authoring guidance for omnimodal deployments.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-review",
-      "source": "./vllm-omni-review",
+      "source": "./plugins/vllm-omni-review",
       "description": "PR review guidelines, checklists, and pitfalls for vLLM-Omni.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-serving",
-      "source": "./vllm-omni-serving",
+      "source": "./plugins/vllm-omni-serving",
       "description": "Production model serving and API server configuration for vLLM-Omni.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-setup",
-      "source": "./vllm-omni-setup",
+      "source": "./plugins/vllm-omni-setup",
       "description": "Installation and environment setup for vLLM-Omni.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-tts-integration",
-      "source": "./vllm-omni-tts-integration",
+      "source": "./plugins/vllm-omni-tts-integration",
       "description": "Adding new TTS models and streaming speech serving to vLLM-Omni.",
       "version": "1.0.0"
     },
     {
       "name": "vllm-omni-video-gen",
-      "source": "./vllm-omni-video-gen",
+      "source": "./plugins/vllm-omni-video-gen",
       "description": "Video generation workflows for vLLM-Omni.",
       "version": "1.0.0"
     }
   ],
   "metadata": {
     "description": "Claude Code marketplace for installable vLLM-Omni skills.",
-    "version": "1.0.0",
-    "pluginRoot": "./plugins"
+    "version": "1.0.0"
   }
 }
