@@ -1,19 +1,27 @@
 ---
 name: vllm-omni-test-report
-description: Fetches vLLM-Omni Buildkite main-branch builds, finds the latest Scheduled nightly build, and writes a Markdown test report. Excludes Upload * Pipeline jobs from test-focused summaries; adds per-job pytest tables from logs; includes CI details via scripts/buildkite_build_stats.py (success rates and average wall time by branch or nightly category over a date range). Use when generating CI/nightly summaries, Buildkite reports for vllm-omni, or analyzing Scheduled nightly results from https://buildkite.com/vllm/vllm-omni/builds?branch=main.
+description: Writes a Markdown test report: first **Metrics overview** (CI stats + GitHub bug first-response + UT coverage from scripts/buildkite_build_stats.py), then **Test content (job scope)** (references/ci-job-test-scope.md), **Local testing** (references/local-test-matrix.md: test results analysis / issue tracking / matrix), and **CI testing** (Buildkite Scheduled nightly: jobs, pytest tables from logs; **Analysis (CI Failure)** table from GitHub `label:bug` + `[CI Failure]` title prefix (case-insensitive) per references/ci-github-ci-failure-issues.md; excludes Upload * Pipeline from test summaries), then paginated open bug issues. Use when generating CI/nightly summaries, Buildkite reports for vllm-omni, analyzing Scheduled nightly results from https://buildkite.com/vllm/vllm-omni/builds?branch=main, or documenting local vs CI CUDA/hardware/software coverage in one report.
 ---
 
 # vLLM-Omni Test Report (Buildkite Nightly)
 
 ## Overview
 
-Generate a **human-readable test report** from the [vllm-omni `main` branch builds](https://buildkite.com/vllm/vllm-omni/builds?branch=main), prioritizing the **latest successful identification** of a **Scheduled nightly build** (scheduled pipeline run, not every PR merge).
+Generate a **human-readable test report** whose body (excluding **Open issues** at the end) is ordered as:
+
+1. **Metrics overview** — Table with **Success rate/UT coverage**, **Bug avg first response** (GitHub open+closed `label=bug`, current UTC month), plus **ut** / **ut (exclude models)** from **Simple Unit Test** on the **latest non-nightly `main` build** (see [main builds](https://buildkite.com/vllm/vllm-omni/builds?branch=main); same nightly heuristic as merge bucket in `buildkite_build_stats.py`), from [scripts/buildkite_build_stats.py](scripts/buildkite_build_stats.py) (`--markdown`; optional `GITHUB_TOKEN`). This is the **first** top-level section after the title.
+2. **Test content (job scope)** — What each common **Buildkite job** is meant to test (Scheduled nightly-oriented), from [references/ci-job-test-scope.md](references/ci-job-test-scope.md). Update when pipeline job names or scopes change.
+3. **Local testing** — **Test results analysis** and **Issue tracking** from [references/local-test-matrix.md](references/local-test-matrix.md) (CUDA/hardware/deps/testers + per-row case counts + issue table). No Buildkite API; update that file when local QA scope or a test round’s results change.
+4. **CI testing** — Resolve a **Scheduled nightly** build on [vllm-omni `main`](https://buildkite.com/vllm/vllm-omni/builds?branch=main), fetch **reportable** jobs, summarize pass/fail, add **per-job pytest** tables from step logs (exclude `Upload * Pipeline` from test-focused summaries), and add **### Analysis (CI Failure)** (GitHub `label:bug`, title prefix `[CI Failure]` **ignore case**, current UTC month — see [references/ci-github-ci-failure-issues.md](references/ci-github-ci-failure-issues.md); cross-check [open](https://github.com/vllm-project/vllm-omni/issues/?q=is%3Aissue%20state%3Aopen%20label%3Abug) / [closed](https://github.com/vllm-project/vllm-omni/issues/?q=is%3Aissue%20state%3Aclosed%20label%3Abug) bug lists).
+
+Then append **Open issues** (paginated GitHub bugs) unchanged.
 
 ## When to Apply
 
 - User asks for a nightly / CI test report for vllm-omni
 - User pastes a Buildkite build URL or build number
 - User wants to summarize failures, flaky steps, or duration from Buildkite
+- User needs **local** matrix content in the report (from [references/local-test-matrix.md](references/local-test-matrix.md)) alongside **CI** results from Buildkite
 
 ## Definitions
 
@@ -31,7 +39,11 @@ Generate a **human-readable test report** from the [vllm-omni `main` branch buil
 
 ## Workflow
 
-### Step 1: Resolve the target build
+**Local testing:** There is no API step. When writing the report, **read** [references/local-test-matrix.md](references/local-test-matrix.md) and paste *Common stack*, *Test results analysis*, and *Issue tracking* into **## Local testing** (or use a user-supplied replacement; prefer the user’s values if they paste an updated matrix).
+
+**CI testing, Metrics overview, open issues:** Follow the steps below.
+
+### Step 1: Resolve the target build (CI testing)
 
 **Option A - API (recommended)**
 
@@ -91,13 +103,13 @@ python scripts/nightly_job_pytest_table.py              # latest scheduled night
 python scripts/nightly_job_pytest_table.py --build 4708
 ```
 
-Paste the emitted **Per-job test execution (pytest)** Markdown table into the report. The script already **skips** `Upload * Pipeline` jobs.
+Paste the emitted **Per-job test execution (pytest)** Markdown table into the **CI testing** section (**### Per-job test execution (pytest)**). The script already **skips** `Upload * Pipeline` jobs.
 
-### Step 2c: CI details (success rate and average duration)
+### Step 2c: Metrics overview (success rate and average duration)
 
-1. From the skill directory, run [scripts/buildkite_build_stats.py](scripts/buildkite_build_stats.py) with `BUILDKITE_TOKEN` or `BUILDKITE_API_TOKEN` set. The script uses `requests` (`pip install requests` if needed).
+1. From the skill directory, run [scripts/buildkite_build_stats.py](scripts/buildkite_build_stats.py) with `BUILDKITE_TOKEN` or `BUILDKITE_API_TOKEN` set. Optional `GITHUB_TOKEN` (or `GH_TOKEN`) for the **Bug avg first response** column. The script uses `requests` (`pip install requests` if needed).
 2. Optional: pass `--from` / `--to` as `YYYY-MM-DD` (UTC, inclusive) for a custom window. If **both are omitted**, the script uses **the current UTC calendar month through today** (month-to-date). To override one past month, pass both dates (e.g. `--from 2025-01-01 --to 2025-01-31`).
-3. Add `--markdown` to print a ready-to-paste **CI details** block (Markdown table + short definitions).
+3. Add `--markdown` to print a ready-to-paste **Metrics overview** block: Source line plus CI category table (**Success rate/UT coverage**; **Bug avg first response** on **bugs (first response, YYYY-MM)** row from GitHub; **ut** / **ut (exclude models)** from **Simple Unit Test** log parsing — implementation detail stays in `buildkite_build_stats.py`, not in the pasted report prose).
 
 ```bash
 pip install requests   # if not already installed
@@ -106,9 +118,17 @@ python scripts/buildkite_build_stats.py --markdown
 # python scripts/buildkite_build_stats.py --from YYYY-MM-DD --to YYYY-MM-DD --markdown
 ```
 
-4. Paste the script output (from `## CI details` through the table) into the report. **Do not** hand-edit numbers; they must match the script run.
+4. Paste the full script output (the `## Metrics overview` section through the main metrics table, including **ut**, **ut (exclude models)**, and **bugs (first response, ...)** rows) into the report as the **first** body section (immediately after the report title). **Do not** hand-edit numbers or coverage; they must match the script run.
 
 See [references/buildkite-api.md](references/buildkite-api.md) for how builds are classified into **ready** / **merge** / **nightly** buckets.
+
+### Step 2d: CI testing — `[CI Failure]` GitHub issues (current month)
+
+1. Enumerate issues with **`label:bug`**, title prefix **`[CI Failure]`** (case-insensitive; see [references/ci-github-ci-failure-issues.md](references/ci-github-ci-failure-issues.md)), and **`created_at`** in the **current UTC calendar month** (same `YYYY-MM` window as **Open issues** unless the report specifies another month).
+2. Prefer **GitHub Search API**: `GET /search/issues?q=repo:vllm-project/vllm-omni+is:issue+label:bug+created:YYYY-MM-01..YYYY-MM-DD` then **filter** each hit’s `title` with the prefix rules (do **not** treat “CI failure” in free text as a match). Include **open** and **closed** issues that satisfy the filter.
+3. Optional: `GITHUB_TOKEN` / `GH_TOKEN` in the environment for higher rate limits (do not paste tokens into chat).
+4. Add **### Analysis (CI Failure)** under **CI testing** with columns **Issue #** | **Title** | **Status** (`Open` / `Closed`). If none match, state that explicitly.
+5. **compose_full_report.py** fills this subsection automatically when the Search API succeeds.
 
 ### Step 3: Fetch **all** open bug issues (paginated)
 
@@ -123,11 +143,11 @@ Do **not** rely on the GitHub web UI first page for counts or tables - it is inc
 
 Use the **Report template** below. Fill:
 
-- Build metadata (number, commit SHA short, branch, time)
-- Overall pipeline state (optionally note upload-only failures **separately** from test jobs)
-- Summary counts from **reportable jobs** only
-- Per-job pytest table from Step 2b (aggregate + per-failure rows)
-- **CI details** from Step 2c (`buildkite_build_stats.py --markdown`, or with explicit `--from` / `--to`)
+- **Metrics overview** from Step 2c (`buildkite_build_stats.py --markdown`, or with explicit `--from` / `--to`) — place **first** after the title
+- **Test content (job scope)** — Content from [references/ci-job-test-scope.md](references/ci-job-test-scope.md) (or user-supplied replacement)
+- **Local testing** — Content from [references/local-test-matrix.md](references/local-test-matrix.md) (optional extra bullets for manual spot-check results if the user provides them)
+- **CI testing** — Build metadata (number, commit SHA short, branch, time); overall pipeline state (optionally note upload-only failures **separately** from test jobs); summary counts from **reportable jobs** only; failed-job table; per-job pytest table from Step 2b (aggregate + per-failure rows); **### Analysis (CI Failure)** from Step 2d; optional passed major stages
+- **Open issues** from Step 3
 - **Unknown** if data was incomplete
 
 ## Report Template (Markdown)
@@ -135,7 +155,21 @@ Use the **Report template** below. Fill:
 ```markdown
 # vLLM-Omni Test Report - Scheduled Nightly
 
-## Build
+## Metrics overview
+
+(Paste the full `--markdown` output from `scripts/buildkite_build_stats.py` starting at the `## Metrics overview` heading: the Source line and the five-column CI category table including **Success rate/UT coverage**, **Bug avg first response**, **ut**, **ut (exclude models)**, and **bugs (first response, YYYY-MM)**.)
+
+## Test content (job scope)
+
+Paste the Markdown from [references/ci-job-test-scope.md](references/ci-job-test-scope.md) (job names and what each step tests). Update the reference when Buildkite job names change.
+
+## Local testing
+
+Paste the Markdown from the skill reference [references/local-test-matrix.md](references/local-test-matrix.md): *Common stack*, *Test results analysis* (total cases / passed / failed), *Issue tracking* (issue / description / status). Replace if the local matrix differs (user-provided or updated reference file). Optional: add bullets for **manual results** (e.g. spot-check pass/fail) if the user supplies them.
+
+## CI testing (Buildkite — Scheduled nightly)
+
+### Build
 
 | Field | Value |
 |-------|--------|
@@ -148,13 +182,13 @@ Use the **Report template** below. Fill:
 | **Pipeline state** | passed / failed / canceled |
 | **Note** | Upload * Pipeline steps omitted from test summaries below |
 
-## Summary (reportable jobs only)
+### Summary (reportable jobs only)
 
 - **Passed**: {n} jobs
 - **Failed / broken**: {n} jobs (test executors only)
 - **Skipped / blocked**: {n} (if any)
 
-## Failed test jobs (if any)
+### Failed test jobs (if any)
 
 | Step / Job | State | Notes |
 |------------|-------|--------|
@@ -162,24 +196,30 @@ Use the **Report template** below. Fill:
 
 > Exclude jobs matching `^Upload .+ Pipeline$` unless the user asked for full pipeline ops.
 
-## Per-job test execution (pytest)
+### Per-job test execution (pytest)
 
-| Job | Test case / scope | Result | Detail | Step link |
-|-----|-------------------|--------|--------|-----------|
-| Job A | (pytest aggregate) | passed | `25 passed in 120s` | `https://buildkite.com/vllm/vllm-omni/builds/{n}#{job-id}` |
-| Job A | tests/foo.py::test_bar | failed | (from log) | same |
+| Job | Result | Step link |
+|-----|--------|-----------|
+| Job A | passed | `https://buildkite.com/vllm/vllm-omni/builds/{n}#{job-id}` |
+| Job A — tests/foo.py::test_bar | failed | same |
 
 Rules:
 
-- One **aggregate** row per job when a pytest session summary exists; then one row per **`FAILED` / `ERROR`** node id.
-- **Passed** individual tests are **not** listed exhaustively (logs rarely retain every passed node id); the aggregate line carries pass counts.
-- Non-pytest jobs: single row explaining no pytest footer found.
+- One **aggregate** row per job when a pytest session summary exists; then one row per **`FAILED` / `ERROR`** node id (node id appended to **Job** after ` — `).
+- **Passed** individual tests are **not** listed exhaustively (logs rarely retain every passed node id); open the step log for pytest footer text.
+- Non-pytest jobs: single row with **Result** like `state — non-pytest or log truncated` when no pytest footer was found.
 
-## CI details
+### Analysis (CI Failure)
 
-(Paste the full `--markdown` output from `scripts/buildkite_build_stats.py` starting at the `## CI details` heading: prose line, blockquote definitions, and the four-column Markdown table.)
+**Filter:** `label:bug`, title prefix **`[CI Failure]`** (**case-insensitive**; rules in [references/ci-github-ci-failure-issues.md](references/ci-github-ci-failure-issues.md)), `created_at` (UTC) in the report month.
 
-## Passed major stages (optional)
+**Data sources:** [open `label:bug`](https://github.com/vllm-project/vllm-omni/issues/?q=is%3Aissue%20state%3Aopen%20label%3Abug) · [closed `label:bug`](https://github.com/vllm-project/vllm-omni/issues/?q=is%3Aissue%20state%3Aclosed%20label%3Abug)
+
+| Issue # | Title | Status |
+|---------|-------|--------|
+| [#xxxx](https://github.com/vllm-project/vllm-omni/issues/xxxx) | … | Open / Closed |
+
+### Passed major stages (optional)
 
 - ...
 
@@ -195,17 +235,15 @@ Filter rule (full enumeration, not web UI first page):
 - **Keep** only rows where `created_at` falls in the **current month** (compare `YYYY-MM` in UTC from API).
 - **Total count** in prose (e.g. "New bugs opened this month: *n*") must match the filtered table length.
 
-## Follow-ups
-
-- Link to re-run: Buildkite build page - Rebuild
-- For regressions: capture failing test names from step logs (pytest output).
-- For open bugs: prioritize current-month issues that match failed suites.
-
 ## Data source
 
+- Job scope: [references/ci-job-test-scope.md](references/ci-job-test-scope.md)
+- Local matrix: [references/local-test-matrix.md](references/local-test-matrix.md)
 - Buildkite pipeline: vllm/vllm-omni, branch main
 - Build list URL: https://buildkite.com/vllm/vllm-omni/builds?branch=main
 - Open bug issues URL: https://github.com/vllm-project/vllm-omni/issues?q=is%3Aissue%20state%3Aopen%20label%3Abug
+- `[CI Failure]` issue rules + table: [references/ci-github-ci-failure-issues.md](references/ci-github-ci-failure-issues.md); cross-check [open bugs](https://github.com/vllm-project/vllm-omni/issues/?q=is%3Aissue%20state%3Aopen%20label%3Abug) and [closed bugs](https://github.com/vllm-project/vllm-omni/issues/?q=is%3Aissue%20state%3Aclosed%20label%3Abug)
+```
 
 ## Constraints
 
@@ -226,6 +264,9 @@ Filter rule (full enumeration, not web UI first page):
 - Buildkite REST API: [Buildkite API documentation](https://buildkite.com/docs/apis/rest-api)
 - Optional detail: [references/buildkite-api.md](references/buildkite-api.md)
 - GitHub issues (pagination + month filter): [references/github-issues-pagination.md](references/github-issues-pagination.md)
+- CI job test scope (what each nightly job tests): [references/ci-job-test-scope.md](references/ci-job-test-scope.md)
+- Local testing (test results analysis / issue tracking / matrix): [references/local-test-matrix.md](references/local-test-matrix.md)
+- CI Failure GitHub issues (`[CI Failure]` prefix, case-insensitive; `label:bug`): [references/ci-github-ci-failure-issues.md](references/ci-github-ci-failure-issues.md)
 
 ## Cursor copy
 

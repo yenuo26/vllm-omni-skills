@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Fetch vllm-omni Buildkite nightly jobs (excluding Upload * Pipeline), pull each job raw log,
+Fetch vllm-omni Buildkite nightly jobs (excluding Upload * Pipeline, :docker: Build image,
+:email: Nightly Collection & Email, :pipeline: init), pull each job raw log,
 and emit Markdown rows for a per-job pytest summary table.
 
 Requires: BUILDKITE_TOKEN or BUILDKITE_API_TOKEN in the environment.
@@ -17,7 +18,13 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
+
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+from md_table import render_markdown_table
 
 ORG = "vllm"
 PIPELINE = "vllm-omni"
@@ -25,6 +32,12 @@ BRANCH = "main"
 
 # Ignore artifact/upload steps when reporting test outcomes.
 UPLOAD_PIPELINE_RE = re.compile(r"^Upload .+ Pipeline$", re.IGNORECASE)
+# Non-test steps: omit from per-job pytest table (no useful pytest footer).
+SKIP_NON_PYTEST_JOB_RES = (
+    re.compile(r"^:docker:\s*Build image\s*$", re.IGNORECASE),
+    re.compile(r"^:email:\s*Nightly Collection\s*&\s*Email\s*$", re.IGNORECASE),
+    re.compile(r"^:pipeline:\s*init\s*$", re.IGNORECASE),
+)
 
 # Pytest final session lines (6.x/7.x/8.x variants).
 SESSION_LINE_RE = re.compile(
@@ -87,7 +100,9 @@ def latest_scheduled_nightly_number(token: str) -> int:
 
 def should_skip_job(name: str) -> bool:
     n = (name or "").strip()
-    return bool(UPLOAD_PIPELINE_RE.match(n))
+    if UPLOAD_PIPELINE_RE.match(n):
+        return True
+    return any(r.match(n) for r in SKIP_NON_PYTEST_JOB_RES)
 
 
 def parse_pytest(text: str) -> dict[str, Any]:
@@ -140,12 +155,7 @@ def emit_markdown(build: dict[str, Any], token: str) -> None:
     report_jobs = [j for j in jobs if not should_skip_job(j.get("name") or "")]
     report_jobs.sort(key=lambda x: (x.get("name") or ""))
 
-    print("## Per-job test execution (pytest)")
-    print()
-    print(
-        "| Job | Test case / scope | Result | Detail | Step link |\n"
-        "|-----|-------------------|--------|--------|-----------|"
-    )
+    rows: list[list[str]] = []
 
     for j in report_jobs:
         name = md_cell(j.get("name") or "")
@@ -154,32 +164,26 @@ def emit_markdown(build: dict[str, Any], token: str) -> None:
         link = job_anchor(build_no, jid)
         raw_url = j.get("raw_log_url") or j.get("log_url")
         if not raw_url:
-            print(
-                f"| {name} | (log URL missing) | {md_cell(state)} | "
-                f"Cannot fetch log via API | [open]({link}) |"
+            rows.append(
+                [name, f"{md_cell(state)} — no log URL", f"[open]({link})"]
             )
             continue
 
         try:
             log = http_text_tail(str(raw_url), token)
-        except urllib.error.HTTPError as e:
-            print(
-                f"| {name} | (log fetch) | {md_cell(state)} | "
-                f"HTTP {e.code} fetching log | [open]({link}) |"
+        except urllib.error.HTTPError:
+            rows.append(
+                [name, f"{md_cell(state)} — log fetch failed", f"[open]({link})"]
             )
             continue
-        except urllib.error.URLError as e:
-            reason = getattr(e, "reason", None)
-            detail = str(reason) if reason is not None else str(e)
-            print(
-                f"| {name} | (log fetch) | {md_cell(state)} | "
-                f"URL error: {md_cell(detail)} | [open]({link}) |"
+        except urllib.error.URLError:
+            rows.append(
+                [name, f"{md_cell(state)} — log fetch failed", f"[open]({link})"]
             )
             continue
-        except TimeoutError as e:
-            print(
-                f"| {name} | (log fetch) | {md_cell(state)} | "
-                f"timeout: {md_cell(str(e))} | [open]({link}) |"
+        except TimeoutError:
+            rows.append(
+                [name, f"{md_cell(state)} — log fetch failed", f"[open]({link})"]
             )
             continue
 
@@ -189,10 +193,12 @@ def emit_markdown(build: dict[str, Any], token: str) -> None:
         errors = info["error_nodes"]
 
         if summary is None and not fails and not errors:
-            hint = "No pytest session summary found (may be non-pytest step)"
-            print(
-                f"| {name} | (non-pytest or log truncated) | {md_cell(state)} | "
-                f"{md_cell(hint)} | [open]({link}) |"
+            rows.append(
+                [
+                    name,
+                    f"{md_cell(state)} — non-pytest or log truncated",
+                    f"[open]({link})",
+                ]
             )
             continue
 
@@ -211,20 +217,16 @@ def emit_markdown(build: dict[str, Any], token: str) -> None:
         elif (state == "passed" or state == "finished") and not fails and not errors:
             agg_result = "passed"
 
-        scope = "(pytest aggregate)"
-        detail = md_cell(summary or "")
-        print(
-            f"| {name} | {scope} | {md_cell(agg_result)} | {detail} | [open]({link}) |"
-        )
+        rows.append([name, md_cell(agg_result), f"[open]({link})"])
 
         for node in fails:
-            print(
-                f"| {name} | {md_cell(node)} | failed | (from log) | [open]({link}) |"
-            )
+            rows.append([f"{name} — {md_cell(node)}", "failed", f"[open]({link})"])
         for node in errors:
-            print(
-                f"| {name} | {md_cell(node)} | error | (from log) | [open]({link}) |"
-            )
+            rows.append([f"{name} — {md_cell(node)}", "error", f"[open]({link})"])
+
+    print("## Per-job test execution (pytest)")
+    print()
+    print(render_markdown_table(["Job", "Result", "Step link"], rows))
 
 
 def main() -> None:

@@ -5,6 +5,13 @@ Fetch vllm-omni builds from the Buildkite REST API for a date range and compute:
   - Success rate: passed / (passed + failed)
   - Average duration: arithmetic mean wall time (finished_at - created_at) for
     passed/failed builds that have both created_at and finished_at
+  - With `--markdown`: main table has **Success rate/UT coverage**, **Bug avg first response** (GitHub: open +
+    closed `label=bug`, current UTC month, mean time issue opened -> first comment), plus **ut** /
+    **ut (exclude models)** from Simple Unit Test log on the **latest `main` build that is not** a scheduled
+    nightly (same ``is_nightly`` heuristic as the merge bucket; not the raw newest build on the pipeline).
+    ``ut (exclude models)`` uses per-file lines minus any path with a directory segment named ``models``; ready/merge/nightly
+    rows use CI build stats only. The emitted
+    Markdown table lists percentages only, not those path rules.
 
 Three buckets (display names in reports):
 
@@ -14,7 +21,7 @@ Three buckets (display names in reports):
 
 Usage:
 
-  Set BUILDKITE_API_TOKEN (or BUILDKITE_TOKEN).
+  Set BUILDKITE_API_TOKEN (or BUILDKITE_TOKEN). Optional: GITHUB_TOKEN (or GH_TOKEN) for GitHub bug metrics.
   pip install requests  # if missing
   python scripts/buildkite_build_stats.py [--from YYYY-MM-DD --to YYYY-MM-DD] [--markdown]
 
@@ -27,7 +34,13 @@ import argparse
 import os
 import re
 import sys
+from pathlib import Path
 from collections import defaultdict
+
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+from md_table import render_markdown_table
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
@@ -71,6 +84,165 @@ def parse_buildkite_time(s: str | None) -> datetime | None:
 def get_api_token() -> str | None:
     token = os.environ.get("BUILDKITE_API_TOKEN") or os.environ.get("BUILDKITE_TOKEN")
     return token.strip() if token else None
+
+
+def get_github_token() -> str | None:
+    t = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    return t.strip() if t else None
+
+
+def _github_tls_verify() -> bool:
+    """
+    TLS certificate verification for GitHub ``requests`` calls.
+
+    Set ``GITHUB_INSECURE_SSL`` to ``1`` / ``true`` / ``yes`` / ``on`` to disable verification
+    (not recommended; use only when the OS trust store cannot validate ``api.github.com``, e.g.
+    some corporate proxies). Buildkite requests are always verified.
+    """
+    v = (os.environ.get("GITHUB_INSECURE_SSL") or "").strip().lower()
+    if v in ("1", "true", "yes", "on"):
+        return False
+    return True
+
+
+if not _github_tls_verify():
+    try:
+        import urllib3
+
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    except Exception:
+        pass
+
+
+# GitHub REST: vllm-project/vllm-omni issues (label bug) for --markdown bug first-response column
+GITHUB_REPO_REST = "https://api.github.com/repos/vllm-project/vllm-omni"
+
+
+def _github_headers(gh_token: str | None) -> dict[str, str]:
+    h: dict[str, str] = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "vllm-omni-buildkite-build-stats",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if gh_token:
+        h["Authorization"] = f"Bearer {gh_token}"
+    return h
+
+
+def _fetch_bug_issues_state_month(
+    state: str, utc_month_prefix: str, gh_token: str | None
+) -> list[dict]:
+    """
+    state is open or closed; label=bug; excludes PR entries.
+    Only issues with created_at in utc_month_prefix (YYYY-MM). Uses sort=created desc and stops
+    once all issues are older than the month (avoids scanning all closed history).
+    """
+    out: list[dict] = []
+    page = 1
+    month_floor = f"{utc_month_prefix}-01T00:00:00Z"
+    while True:
+        r = requests.get(
+            f"{GITHUB_REPO_REST}/issues",
+            params={
+                "state": state,
+                "labels": "bug",
+                "per_page": 100,
+                "page": page,
+                "sort": "created",
+                "direction": "desc",
+            },
+            headers=_github_headers(gh_token),
+            timeout=60,
+            verify=_github_tls_verify(),
+        )
+        if r.status_code == 403:
+            raise RuntimeError(
+                "GitHub API 403 (rate limit or forbidden). Set GITHUB_TOKEN for higher limits."
+            )
+        r.raise_for_status()
+        batch = r.json()
+        if not isinstance(batch, list) or not batch:
+            break
+        stop_paging = False
+        for i in batch:
+            if i.get("pull_request"):
+                continue
+            ca = str(i.get("created_at") or "")
+            if ca.startswith(utc_month_prefix):
+                out.append(i)
+            elif ca < month_floor:
+                stop_paging = True
+        if stop_paging or len(batch) < 100:
+            break
+        page += 1
+    return out
+
+
+def _first_comment_delay_seconds(issue: dict, gh_token: str | None) -> float | None:
+    """Seconds from issue created_at to first comment created_at; None if no comments."""
+    num = issue.get("number")
+    if num is None:
+        return None
+    r = requests.get(
+        f"{GITHUB_REPO_REST}/issues/{num}/comments",
+        params={"per_page": 1, "page": 1},
+        headers=_github_headers(gh_token),
+        timeout=30,
+        verify=_github_tls_verify(),
+    )
+    r.raise_for_status()
+    comments = r.json()
+    if not isinstance(comments, list) or not comments:
+        return None
+    t0 = parse_buildkite_time(issue.get("created_at"))
+    t1 = parse_buildkite_time(comments[0].get("created_at"))
+    if t0 is None or t1 is None:
+        return None
+    return max(0.0, (t1 - t0).total_seconds())
+
+
+def github_bug_avg_first_response_month_cell(utc_month_prefix: str) -> str:
+    """
+    Mean time from issue open to first comment for issues with label bug and
+    created_at in utc_month_prefix (YYYY-MM), combining open and closed issue lists.
+
+    See:
+    https://github.com/vllm-project/vllm-omni/issues?q=is%3Aissue+state%3Aopen+label%3Abug
+    https://github.com/vllm-project/vllm-omni/issues?q=is%3Aissue+state%3Aclosed+label%3Abug
+    """
+    gh = get_github_token()
+    by_num: dict[int, dict] = {}
+    try:
+        for state in ("open", "closed"):
+            for i in _fetch_bug_issues_state_month(state, utc_month_prefix, gh):
+                n = i.get("number")
+                if isinstance(n, int):
+                    by_num[n] = i
+    except requests.RequestException as e:
+        return f"*N/A* (GitHub API error: {e})"
+    except RuntimeError as e:
+        return f"*N/A* ({e})"
+
+    month_issues = list(by_num.values())
+    if not month_issues:
+        return f"*N/A* (no bug issues created in {utc_month_prefix})"
+
+    delays: list[float] = []
+    for i in month_issues:
+        try:
+            d = _first_comment_delay_seconds(i, gh)
+        except requests.RequestException:
+            continue
+        if d is not None:
+            delays.append(d)
+
+    if not delays:
+        return (
+            f"*N/A* (0 issues with comments among {len(month_issues)} opened in {utc_month_prefix})"
+        )
+
+    avg = sum(delays) / len(delays)
+    return f"**{format_duration(avg)}** (avg, n={len(delays)}/{len(month_issues)} issues)"
 
 
 def parse_link_header(link: str | None) -> dict[str, str]:
@@ -185,6 +357,358 @@ def format_duration(seconds: float) -> str:
     return f"{h}h{m}m{s}s"
 
 
+SIMPLE_UNIT_TEST_JOB_RE = re.compile(r"^simple\s+unit\s+test\s*$", re.IGNORECASE)
+
+# Simple Unit Test: fetch the step log up to this many bytes (rolling **tail** if the log is larger).
+# The coverage text report starts at pytest's ``tests coverage`` banner and can be many MiB; a small tail
+# can omit the **beginning** of the per-file table while still containing ``TOTAL``, which skews sums.
+UT_LOG_MAX_BYTES = 200_000_000
+
+
+def read_log_tail(token: str, log_url: str, *, tail_bytes: int = 12_000_000) -> str:
+    """Fetch step log; keep only the last tail_bytes to cap memory (TOTAL line is near the end)."""
+    headers = {"Authorization": f"Bearer {token}"}
+    r = requests.get(log_url, headers=headers, stream=True, timeout=300)
+    r.raise_for_status()
+    buf = bytearray()
+    for chunk in r.iter_content(chunk_size=65_536):
+        if not chunk:
+            break
+        buf.extend(chunk)
+        if len(buf) > tail_bytes:
+            buf = buf[-tail_bytes:]
+    return buf.decode("utf-8", errors="replace")
+
+
+def read_log_tail_capped(token: str, log_url: str, *, max_bytes: int) -> str:
+    """Like :func:`read_log_tail` but the size parameter is a maximum log length (default for UT is large)."""
+    return read_log_tail(token, log_url, tail_bytes=max_bytes)
+
+
+def extract_pytest_coverage_text_report(log_text: str) -> str:
+    """
+    Keep pytest's text coverage report from the ``tests coverage`` banner through EOF.
+
+    Pytest prints ``================ tests coverage ================`` (with optional CI timestamp prefix)
+    before the ``Name / Stmts / Miss / ...`` table and the final ``TOTAL`` row. Parsing the whole step log
+    can pick up unrelated lines; restricting to this section matches a full local ``coverage report``.
+
+    Uses the **last** occurrence of the substring ``tests coverage`` if the log contains multiple runs.
+    If the marker is missing, returns ``log_text`` unchanged.
+    """
+    key = "tests coverage"
+    pos = log_text.rfind(key)
+    if pos == -1:
+        return log_text
+    line_start = log_text.rfind("\n", 0, pos) + 1
+    return log_text[line_start:]
+
+
+def _strip_ci_log_prefix_and_ansi(line: str) -> str:
+    """Strip Buildkite ``[ISO-timestamp] `` prefix and ANSI SGR codes so coverage rows match cleanly."""
+    s = line.rstrip()
+    s = re.sub(r"^\[[^\]]+\]\s*", "", s)
+    s = re.sub(r"\x1b\[[0-9;]*m", "", s)
+    return s.strip()
+
+
+def parse_coverage_total_row(
+    log_text: str,
+) -> tuple[str | None, int | None, int | None]:
+    """
+    Find the coverage.py text-report **TOTAL** row (last such row in ``log_text``).
+
+    Requires the row to **start** with ``TOTAL`` as a word (after optional CI log prefix), so lines that
+    merely *contain* ``TOTAL`` in a path or prose are ignored. Integers between ``TOTAL`` and the trailing
+    ``NN%`` are parsed; the first two are **Stmts** and **Miss** (line or branch report; branch adds more
+    columns before Cover ``%``).
+
+    Returns ``(cover_pct_digits, stmts, miss)`` e.g. ``("18", 64377, 51384)``, or three ``None`` if absent.
+    """
+    for line in reversed(log_text.splitlines()):
+        stripped = _strip_ci_log_prefix_and_ansi(line)
+        if not stripped or not re.match(r"^TOTAL\b", stripped, re.I):
+            continue
+        m_pct = re.search(r"(\d+)%\s*$", stripped)
+        if not m_pct:
+            continue
+        before_pct = stripped[: m_pct.start()].rstrip()
+        rest = re.sub(r"^TOTAL\s+", "", before_pct, flags=re.I).strip()
+        nums = [int(x) for x in re.findall(r"\d+", rest)]
+        if len(nums) < 2:
+            continue
+        return m_pct.group(1), nums[0], nums[1]
+    return None, None, None
+
+
+def parse_total_line_coverage_pct(log_text: str) -> str | None:
+    """Percentage string from coverage ``TOTAL`` row, e.g. ``18%``."""
+    p, _, _ = parse_coverage_total_row(log_text)
+    return f"{p}%" if p else None
+
+
+def parse_total_line_stmts_miss(log_text: str) -> tuple[int, int] | None:
+    """**Stmts** and **Miss** from the same ``TOTAL`` row as :func:`parse_total_line_coverage_pct`."""
+    _, s, m = parse_coverage_total_row(log_text)
+    if s is None or m is None:
+        return None
+    return s, m
+
+
+def parse_pytest_session_footer(log_text: str) -> tuple[str | None, str | None]:
+    """
+    Parse pytest session summary from Simple Unit Test log (last matching line wins).
+
+    Handles:
+      - ``25 passed in 120.2s``
+      - ``=== 865 passed, 1 skipped, 591 deselected, 48 warnings in 333.31s (0:05:33) ===``
+
+    Returns (duration_str like ``333.31s``, cleaned_summary_without_leading/trailing ``=``) or (None, None).
+    """
+    best_dur: str | None = None
+    best_line: str | None = None
+    for line in log_text.splitlines():
+        m = re.search(r"(\d+)\s+passed\s+in\s+([\d.]+)s\b", line, re.I)
+        if m:
+            best_dur = f"{m.group(2)}s"
+            best_line = line.strip()
+            continue
+        if re.search(r"\bpassed\b", line, re.I) and re.search(
+            r"\bin\s+[\d.]+\s*s\b", line, re.I
+        ):
+            m2 = re.search(r"\bin\s+([\d.]+)s\b", line, re.I)
+            if m2:
+                best_dur = f"{m2.group(1)}s"
+                best_line = line.strip()
+    cleaned: str | None = None
+    if best_line:
+        cleaned = re.sub(r"^=+\s*|\s*=+$", "", best_line).strip()
+        if len(cleaned) > 160:
+            cleaned = cleaned[:157] + "..."
+    return best_dur, cleaned
+
+
+def parse_pytest_session_duration(log_text: str) -> str | None:
+    """Backward-compatible: duration only."""
+    d, _ = parse_pytest_session_footer(log_text)
+    return d
+
+
+def _path_has_models_directory_segment(path: str) -> bool:
+    """
+    True if any path segment (split on ``/``) equals ``models`` (case-insensitive).
+    Does **not** match a file named ``models.py`` (that segment is ``models.py``, not ``models``).
+    """
+    p = path.replace("\\", "/").strip()
+    if not p:
+        return False
+    for seg in p.split("/"):
+        if seg.lower() == "models":
+            return True
+    return False
+
+
+def parse_coverage_data_line(line: str) -> tuple[str, int, int] | None:
+    """
+    One row from coverage.py text report (line or branch style).
+    Returns (path, stmts, miss) or None.
+
+    The **Cover** column is a ``NN%`` token. When a row includes a **Missing** column after Cover, the line
+    does **not** end with ``%``; we anchor on the **last** ``\\d+(?:\\.\\d+)?%`` in the line (Missing is line
+    numbers, not percentages). CI log lines may be prefixed with ``[timestamp]``; that is stripped like the
+    ``TOTAL`` row parser.
+    """
+    line = _strip_ci_log_prefix_and_ansi(line)
+    line = line.rstrip()
+    if not line or line.strip().startswith(("-", "=")):
+        return None
+    if re.match(r"^Name\b", line):
+        return None
+    pct_matches = list(re.finditer(r"(\d+(?:\.\d+)?)%", line))
+    if not pct_matches:
+        return None
+    m = pct_matches[-1]
+    before = line[: m.start()].rstrip()
+    parts = before.split()
+    if len(parts) < 3:
+        return None
+    nums: list[int] = []
+    idx = len(parts) - 1
+    while idx >= 0 and parts[idx].isdigit():
+        nums.insert(0, int(parts[idx]))
+        idx -= 1
+    if idx < 0:
+        return None
+    path = " ".join(parts[: idx + 1]).strip()
+    up = path.upper()
+    if up == "TOTAL" or up.startswith("TOTAL "):
+        return None
+    if len(nums) == 2:
+        return path, nums[0], nums[1]
+    if len(nums) == 4:
+        return path, nums[0], nums[1]
+    if len(nums) == 3:
+        return path, nums[0], nums[1]
+    return None
+
+
+def compute_line_coverage_excluding_models_dirs(
+    log_text: str,
+) -> tuple[str | None, int | None, int | None, int | None]:
+    """
+    Recompute line coverage as ``sum(stmts - miss) / sum(stmts)`` over per-file rows, excluding any row whose
+    path has a directory segment named ``models`` (``_path_has_models_directory_segment``).
+
+    Returns ``(pct_str, total_stmts, covered_stmts, total_miss)`` or ``(None, None, None, None)`` if N/A.
+
+    If ``log_text`` omits part of the table (truncated step log or ``UT_LOG_MAX_BYTES`` cap), the sum is over
+    a **partial** file set and can diverge from the **TOTAL** row.
+    """
+    total_stmts = 0
+    total_miss = 0
+    used = False
+    for line in log_text.splitlines():
+        row = parse_coverage_data_line(line)
+        if not row:
+            continue
+        path, stmts, miss = row
+        if _path_has_models_directory_segment(path):
+            continue
+        total_stmts += stmts
+        total_miss += miss
+        used = True
+    if not used or total_stmts <= 0:
+        return None, None, None, None
+    covered = total_stmts - total_miss
+    p = 100.0 * covered / total_stmts
+    if abs(p - round(p)) < 0.05:
+        pct = f"{int(round(p))}%"
+    else:
+        pct = f"{p:.1f}%"
+    return pct, total_stmts, covered, total_miss
+
+
+def sum_parsed_coverage_table_stmts_miss(
+    log_text: str,
+) -> tuple[int | None, int | None]:
+    """Sum **Stmts** and **Miss** over every parsed per-file row (including ``**/models/**``)."""
+    ts, ms = 0, 0
+    used = False
+    for line in log_text.splitlines():
+        row = parse_coverage_data_line(line)
+        if not row:
+            continue
+        ts += row[1]
+        ms += row[2]
+        used = True
+    if not used:
+        return None, None
+    return ts, ms
+
+
+def fetch_latest_main_non_nightly_build(token: str) -> dict | None:
+    """
+    Newest finished-or-not build on ``branch=main`` that is **not** classified as nightly
+    (``classify_build`` -> ``main_non_nightly``), same idea as
+    https://buildkite.com/vllm/vllm-omni/builds?branch=main but skipping Scheduled nightly rows.
+    Scans up to 10 API pages (50 builds/page) newest-first.
+    """
+    url = f"{BUILDKITE_API_BASE}/organizations/{ORG_SLUG}/pipelines/{PIPELINE_SLUG}/builds"
+    per_page = 50
+    for page in range(1, 11):
+        r = requests.get(
+            url,
+            params={"branch": "main", "per_page": per_page, "page": page},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=60,
+        )
+        r.raise_for_status()
+        builds = r.json()
+        if not isinstance(builds, list) or not builds:
+            return None
+        for cand in builds:
+            if classify_build(cand) == "main_non_nightly":
+                return cand
+        if len(builds) < per_page:
+            return None
+    return None
+
+
+def fetch_ut_coverage_simple_unit_test(
+    token: str,
+) -> tuple[
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    int | None,
+    int | None,
+    int | None,
+    int | None,
+    int | None,
+    int | None,
+    int | None,
+]:
+    """
+    Latest **main** non-nightly build (see ``fetch_latest_main_non_nightly_build``), job 'Simple Unit Test'.
+
+    Returns ``(build_number, web_url, cov_pct, cov_excl_pct, pytest_dur, pytest_detail,
+    excl_stmts, excl_covered, excl_miss, total_line_stmts, total_line_miss,
+    table_sum_stmts, table_sum_miss)``.
+    ``total_line_*`` come from the coverage ``TOTAL`` row; ``excl_*`` from summing per-file rows after dropping
+    ``models`` path segments; ``table_sum_*`` sum **all** parsed per-file rows (sanity vs ``TOTAL``).
+    ``excl_*``, ``total_line_*``, and ``table_sum_*`` may be ``None`` if parsing failed.
+    """
+    none13 = (None,) * 13
+    b = fetch_latest_main_non_nightly_build(token)
+    if b is None:
+        return none13  # type: ignore[return-value]
+    num = b.get("number")
+    if num is None:
+        return none13  # type: ignore[return-value]
+    web = (b.get("web_url") or "").strip() or (
+        f"https://buildkite.com/{ORG_SLUG}/{PIPELINE_SLUG}/builds/{num}"
+    )
+    job = None
+    for j in b.get("jobs") or []:
+        name = (j.get("name") or "").strip()
+        if SIMPLE_UNIT_TEST_JOB_RE.match(name):
+            job = j
+            break
+    if job is None:
+        return str(num), web, None, None, None, None, None, None, None, None, None, None, None
+    log_url = (job.get("raw_log_url") or job.get("log_url") or "").strip()
+    if not log_url:
+        return str(num), web, None, None, None, None, None, None, None, None, None, None, None
+    try:
+        raw_log = read_log_tail_capped(token, log_url, max_bytes=UT_LOG_MAX_BYTES)
+    except requests.RequestException:
+        return str(num), web, None, None, None, None, None, None, None, None, None, None, None
+    cov_text = extract_pytest_coverage_text_report(raw_log)
+    cov_pct, total_line_stmts, total_line_miss = parse_coverage_total_row(cov_text)
+    pct = f"{cov_pct}%" if cov_pct else None
+    dur, pytest_detail = parse_pytest_session_footer(raw_log)
+    pct_excl, excl_stmts, excl_covered, excl_miss = compute_line_coverage_excluding_models_dirs(cov_text)
+    table_sum_stmts, table_sum_miss = sum_parsed_coverage_table_stmts_miss(cov_text)
+    return (
+        str(num),
+        web,
+        pct,
+        pct_excl,
+        dur,
+        pytest_detail,
+        excl_stmts,
+        excl_covered,
+        excl_miss,
+        total_line_stmts,
+        total_line_miss,
+        table_sum_stmts,
+        table_sum_miss,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Fetch Buildkite vllm-omni builds; success rate and avg duration by category"
@@ -218,7 +742,7 @@ def main() -> int:
     parser.add_argument(
         "--markdown",
         action="store_true",
-        help="Also emit a Markdown block for the report (CI details section).",
+        help="Also emit a Markdown block for the report (Metrics overview section).",
     )
     args = parser.parse_args()
 
@@ -318,24 +842,63 @@ def main() -> int:
         rows_md.append((label, rate_str.replace("|", "/"), dur_md, str(other)))
 
     if args.markdown:
+        (
+            bnum,
+            _burl,
+            cov,
+            cov_excl,
+            ut_pytest_dur,
+            _,
+            *_,
+        ) = fetch_ut_coverage_simple_unit_test(token)
+        ut_rate = (
+            f"**{cov}**"
+            if cov
+            else "*N/A* (no `TOTAL` ... `NN%` in Simple Unit Test log)"
+        )
+        ut_excl_rate = (
+            f"**{cov_excl}**"
+            if cov_excl
+            else "*N/A* (no per-file coverage table in log)"
+        )
+        if ut_pytest_dur:
+            ut_dur = ut_pytest_dur.strip()
+        else:
+            ut_dur = "*N/A* (no pytest summary line with `passed` and `in ...s` in log)"
+        ut_other = "-"
+        if bnum is None:
+            ut_rate = "*N/A* (no non-nightly `main` build found for Simple Unit Test)"
+            ut_excl_rate = "*N/A* (no non-nightly `main` build found for Simple Unit Test)"
+            ut_dur = "*N/A*"
+            ut_other = "-"
+
+        utc_month = datetime.now(timezone.utc).strftime("%Y-%m")
+        bug_cell = github_bug_avg_first_response_month_cell(utc_month).replace("|", "/")
+
         print()
-        print("## CI details")
+        print("## Metrics overview")
         print()
         print(
             f"Source: `scripts/buildkite_build_stats.py`; "
             f"window (Buildkite `created_at`, UTC): `{args.created_from}` - `{args.created_to}`."
         )
         print()
-        print(
-            "> Success rate denominator is passed+failed only. Average duration is the mean wall time "
-            "(finished_at - created_at) over those passed/failed builds that have both timestamps. "
-            "\"Other finished\" counts canceled/blocked/etc.; they are not in the success-rate denominator."
-        )
-        print()
-        print("| CI category | Success rate | Avg duration | Other finished count |")
-        print("|-------------|--------------|--------------|----------------------|")
+        metrics_header = [
+            "CI category",
+            "Success rate/UT coverage",
+            "Avg duration",
+            "Other finished count",
+            "Bug avg first response",
+        ]
+        metrics_rows: list[list[str]] = []
         for label, rate, dur, other in rows_md:
-            print(f"| {label} | {rate} | {dur} | {other} |")
+            metrics_rows.append([label, rate, dur, other, "-"])
+        metrics_rows.append(["ut", ut_rate, ut_dur, ut_other, "-"])
+        metrics_rows.append(["ut (exclude models)", ut_excl_rate, "-", ut_other, "-"])
+        metrics_rows.append(
+            [f"bugs (first response, {utc_month})", "-", "-", "-", bug_cell]
+        )
+        print(render_markdown_table(metrics_header, metrics_rows))
 
     print("\nDone.")
     return 0

@@ -17,6 +17,12 @@ Put a read-only Buildkite API token in the environment as **`BUILDKITE_TOKEN`** 
 
 Without a credential, the REST API typically returns **401**. The public web UI at [buildkite.com/vllm/vllm-omni/builds?branch=main](https://buildkite.com/vllm/vllm-omni/builds?branch=main) is for humans; automated report generation should use the API with an env-sourced token.
 
+### GitHub API (bug metrics / `compose_full_report.py`)
+
+Optional **`GITHUB_TOKEN`** or **`GH_TOKEN`** for GitHub REST calls in `buildkite_build_stats.py` (e.g. **Bug avg first response**) and in `compose_full_report.py` (open bugs, CI Failure search).
+
+If Python fails TLS verification against **`api.github.com`** (`SSLCertVerificationError`, common behind some corporate proxies), you can set **`GITHUB_INSECURE_SSL=1`** (or `true` / `yes` / `on`) so **only GitHub** HTTPS requests skip certificate verification. **Buildkite requests stay verified.** Prefer fixing the trust store or `REQUESTS_CA_BUNDLE` when possible; disabling verification is weaker security.
+
 ## Identifying scheduled nightly builds
 
 Scheduled builds usually have `message` like:
@@ -65,12 +71,12 @@ When filling the report's **Per-job test execution (pytest)** section:
 
 1. Iterate **reportable jobs** only (after the Upload filter above).
 2. For each job, pull `raw_log_url` and parse pytest output:
-   - **Aggregate row**: scope `(pytest aggregate)`, `Detail` = final `=== ... ===` session line when present.
-   - **Failure / error rows**: one row per `FAILED ...` / `ERROR ...` node id line pytest prints (dedupe repeats).
+   - **Aggregate row**: **Result** from parsed pytest outcome / Buildkite step state (open the step log for the `=== ... ===` session line).
+   - **Failure / error rows**: one row per `FAILED ...` / `ERROR ...` node id; put **`Job — node id`** in the **Job** column (same **Step link** as the job’s aggregate row).
 3. **Do not invent** node ids or counts: if the log was truncated and no `FAILED` lines appear but the
-   aggregate shows failures, state `Detail` as "log truncated; open step log in UI".
-4. Non-pytest jobs (Docker build, email, init): a single row with scope `(non-pytest or log truncated)` and
-   `Detail` explaining that no pytest session line was found.
+   aggregate shows failures, note in prose or rely on the step link; do not fabricate log excerpts in the table.
+4. Non-pytest jobs (Docker build, email, init): a single row with **Result** ending in `non-pytest or log truncated` when
+   no pytest session line was found (omit long explanations from the table).
 
 ## CI aggregate stats (`buildkite_build_stats.py`)
 
@@ -89,6 +95,10 @@ The script [scripts/buildkite_build_stats.py](../scripts/buildkite_build_stats.p
 `finished_at`, compute `finished_at - created_at` in seconds and take the arithmetic mean.
 
 Run with `BUILDKITE_TOKEN` or `BUILDKITE_API_TOKEN` and optional `--markdown`. **`--from` / `--to`** (`YYYY-MM-DD`, UTC, inclusive) are optional: if both are omitted, the script uses the **current UTC month through today**; if you set one, set both.
+
+**`ut` / `ut (exclude models)`** (Metrics table): **not** limited by `--from` / `--to`. The script selects the **newest [`main` build](https://buildkite.com/vllm/vllm-omni/builds?branch=main) that is not** a scheduled nightly (same heuristic as the **merge** bucket: `classify_build` → `main_non_nightly` in `buildkite_build_stats.py`), then parses the **Simple Unit Test** step log from that build.
+
+**`ut (exclude models)`** recomputes line coverage from coverage.py **per-file** `Stmts` / `Miss` rows after dropping any path whose slash-separated segments include a directory named **`models`** (case-insensitive; e.g. `foo/models/bar.py` is excluded; `models.py` alone is not). Per-file rows use the **Cover** ``NN%`` column even when a **Missing** column follows (the line does not end with ``%``). The script fetches the step log up to **`UT_LOG_MAX_BYTES`** (default **200MiB**, rolling tail if the log is larger; see `buildkite_build_stats.py`), then parses only the text report from the **last** pytest **`tests coverage`** banner through EOF (`extract_pytest_coverage_text_report`). Summed per-file **Stmts** (including `models/` paths) should match the **TOTAL** row when the log is complete; if **ut** or **ut (exclude models)** look inconsistent, raise **`UT_LOG_MAX_BYTES`** or check for truncation. The **TOTAL** row is matched only when the line **starts** with `TOTAL` (after stripping a leading `[timestamp]` and ANSI codes), so timestamps or paths that merely contain the substring `TOTAL` are not mistaken for the summary row.
 
 ## Example: jq one-liner for latest scheduled nightly number
 
