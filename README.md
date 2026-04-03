@@ -21,6 +21,7 @@ A collection of AI assistant skills for [vLLM-Omni](https://github.com/vllm-proj
 | [vllm-omni-contrib](skills/vllm-omni-contrib/) | Contributing new models and development workflow |
 | [vllm-omni-cicd](skills/vllm-omni-cicd/) | CI/CD pipelines for model deployments |
 | [vllm-omni-review](skills/vllm-omni-review/) | PR review guidelines, checklists, and common pitfalls |
+| [vllm-omni-release-note-writer](skills/vllm-omni-release-note-writer/) | Release note drafting guidance based on historical vLLM-Omni releases |
 | [vllm-omni-recipe](skills/vllm-omni-recipe/) | Creating deployment guides for vLLM recipes repository |
 
 ## Installation
@@ -69,6 +70,7 @@ Once installed, skills activate automatically based on context. For example:
 - Ask "Generate an image of a sunset" and the **image-gen** skill activates
 - Ask "Set up distributed inference across 4 GPUs" and the **distributed** skill activates
 - Ask "Review this PR for vllm-omni" and the **review** skill activates
+- Ask "Draft the vLLM-Omni v0.19.0rc1 release notes" and the **release-note-writer** skill activates
 
 Each skill provides step-by-step workflows, code examples, and references to detailed documentation.
 

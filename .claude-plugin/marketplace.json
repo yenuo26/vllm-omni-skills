@@ -77,6 +77,12 @@
       "version": "1.0.0"
     },
     {
+      "name": "vllm-omni-release-note-writer",
+      "source": "./plugins/vllm-omni-release-note-writer",
+      "description": "Release note authoring guidance grounded in historical vLLM-Omni releases.",
+      "version": "1.0.0"
+    },
+    {
       "name": "vllm-omni-serving",
       "source": "./plugins/vllm-omni-serving",
       "description": "Production model serving and API server configuration for vLLM-Omni.",

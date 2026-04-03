@@ -1,0 +1,8 @@
+{
+  "name": "vllm-omni-release-note-writer",
+  "version": "1.0.0",
+  "description": "Release note authoring guidance grounded in historical vLLM-Omni releases.",
+  "author": {
+    "name": "hsliuustc0106"
+  }
+}
