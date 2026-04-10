@@ -1,6 +1,6 @@
 ---
 name: vllm-omni-review
-description: Review PRs on vllm-project/vllm-omni by routing to the right domain skills, checking critical evidence, and focusing comments on blocking issues. Use when reviewing pull requests, triaging review depth, or checking tests, benchmarks, and breaking changes in vllm-omni.
+description: Review PRs on vllm-project/vllm-omni by routing to the right domain skills, checking critical evidence, and focusing comments on blocking issues. Use when reviewing pull requests or local branches, triaging review depth, running detailed or default review, or checking tests, benchmarks, and breaking changes in vllm-omni.
 ---
 
 # vLLM-Omni PR Review
@@ -10,6 +10,27 @@ description: Review PRs on vllm-project/vllm-omni by routing to the right domain
 Review PRs like a real maintainer — direct, selective, and focused on high-signal issues. Prioritize 2-3 real problems per PR over exhaustive coverage. Most PRs should get 1-5 short comments; some just get an empty APPROVE.
 
 Use this skill as a router for `vllm-project/vllm-omni` pull request reviews. Keep the default context small, load only the references that match the diff, and prioritize high-confidence findings over coverage theater.
+
+## Usage modes
+
+Inspired by common PR-review skill patterns (e.g. explicit modes + tool choice); **repo is always `vllm-project/vllm-omni`** unless the user says otherwise.
+
+| Mode | What to do |
+|------|------------|
+| **No PR / branch given** | Do not start a full review. Ask for a **PR number or URL**, or **local branch** review vs `main` (or named base). |
+| **PR number or URL** | Use `gh` against this repo: `gh pr view <n> --repo vllm-project/vllm-omni`, `gh pr diff <n> --repo vllm-project/vllm-omni`. Commands and JSON fields: [references/review-execution.md](references/review-execution.md). |
+| **Local branch** | No GitHub PR yet: `git fetch` if needed, then `git diff <base>...HEAD`, `git diff --stat <base>...HEAD`, `git log <base>..HEAD --oneline`. Use branch name instead of PR # in the review header; same blocker scan and routing. |
+| **Pre-filled prompt** | If the prompt already includes PR title/body, checks, or thread summaries (e.g. from GitHub), **do not re-fetch metadata** unless something is missing; still obtain the **diff** if not present (`gh pr diff` or `git diff` against merge base). |
+
+**Depth:** **Default** = maintainer-style brevity ([comment budget](references/review-execution.md)). If the user asks for **detailed** / **in-depth** / **line-by-line**, add a **Specific comments** list with `path:line` items; do not duplicate those points as long prose in the review body. Still respect the usual inline ceiling unless the user explicitly wants an audit-style pass.
+
+## What to prioritize (CI-complement)
+
+- **Investigate, don’t guess** — If a checklist item might apply (e.g. connector lifecycle, diffusion cache), read surrounding code or use **parallel subagents** for independent areas. A wrong guess is worse than silence.
+- **Focus on what automation doesn’t prove** — Design, API contracts, stage/connector invariants, test adequacy for omni paths, breaking behavior. Do not re-argue formatting or issues **pre-commit / CI already failed** (point at the gate instead).
+- **Structured notes** — If you produce a multi-section writeup for the **user**, **omit sections with no findings** (no “No issues” padding).
+
+**Parallel investigation:** Large diffs or multiple subsystems (e.g. `entrypoints/` + `engine/` + `diffusion/`) → split by directory or concern and investigate **in parallel** when subagents exist.
 
 ## Which reference to load (do not load everything)
 
@@ -51,6 +72,8 @@ Fetch:
 - The diff
 - Linked issues for `[Bugfix]` and `[Feature]` PRs only when conventions are unclear
 - Related PRs only when conventions or prior decisions are unclear
+
+Group changes mentally by **kind** (runtime code, tests, docs, configs) to see where risk sits; then load references (Step 4) only for areas touched.
 
 Do not fetch broad extra context unless the diff leaves real ambiguity.
 
