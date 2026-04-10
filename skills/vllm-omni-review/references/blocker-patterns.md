@@ -528,6 +528,7 @@ def add_feature():
 
 ## Part 2: Common pitfalls (footguns and review prompts)
 
+*This part holds the former standalone `pitfalls.md` material (MRO, connector state, async vs sync, diffusion memory, API validation, tensor parallel, test mocks).*
 
 ### Mixin + nn.Module MRO Issue
 

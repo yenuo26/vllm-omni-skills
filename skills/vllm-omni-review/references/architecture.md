@@ -195,6 +195,7 @@ Request → API Layer → AsyncOmni/Omni
 
 ## Code patterns for review
 
+*This section holds the former standalone `code-patterns.md` material (async, validation, connectors, logging, etc.).*
 
 ### Async Function Complexity
 

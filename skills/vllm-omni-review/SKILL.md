@@ -23,6 +23,8 @@ Use this skill as a router for `vllm-project/vllm-omni` pull request reviews. Ke
 | High-risk change; need coverage matrix / docs sync | [references/tests-docs-checklist.md](references/tests-docs-checklist.md) |
 | Calibrating phrasing from real maintainers | [references/maintainer-style-study.md](references/maintainer-style-study.md) |
 
+**Legacy paths (do not load — content merged):** `pitfalls.md` → [blocker-patterns.md](references/blocker-patterns.md) **Part 2**; `code-patterns.md` → [architecture.md](references/architecture.md) **Code patterns for review**; `python-style-guide.md` → [review-execution.md](references/review-execution.md) **Python style (review flags)**; batch/CI triage → [review-execution.md](references/review-execution.md) (Batch / CI sections).
+
 ## Priority Hierarchy Under Context Pressure
 
 If context is limited, prioritize: blocker scan → evidence → domain routing → verdict.
@@ -105,7 +107,7 @@ Use the title prefix and changed directories to decide whether a domain skill is
 
 ### Step 4: Load Only the Relevant Review Reference
 
-Load targeted references based on the diff:
+Use **only** the files in this table. Older docs may mention `references/pitfalls.md` or `references/code-patterns.md`; those files were removed — use **Part 2** of blocker patterns and **Code patterns for review** in architecture instead.
 
 | Diff Area                                                                                 | Load                                                       |
 | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
@@ -177,10 +179,12 @@ For daily sessions (reply-first, PR selection, pacing, re-review): [references/r
 
 ## References
 
-- [Review execution](references/review-execution.md) — Gates, `gh` fetch/submit, comments, batch workflow, CI log triage, Python style flags
+All paths are under `skills/vllm-omni-review/references/`. There is **no** `pitfalls.md`, `code-patterns.md`, or `python-style-guide.md` — see the legacy map in **Which reference to load** above.
+
+- [Review execution](references/review-execution.md) — Gates, `gh` fetch/submit, comment budget, tone, **Python style (review flags)** (imports, naming, common flags — use to avoid nit wars), batch session, CI log triage
 - [Review routing](references/review-routing.md) — Prefix → domain skill, hardware, multi-skill
-- [Blocker patterns](references/blocker-patterns.md) — Merge-blocking patterns (Part 1) + footguns / pitfalls (Part 2)
-- [Architecture](references/architecture.md) — System overview, critical paths, code patterns for review
+- [Blocker patterns](references/blocker-patterns.md) — Part 1: merge-blocking patterns; Part 2: MRO/mixins, connectors, async/sync, diffusion latents, API validation, tensor parallel, mocks (former pitfalls content)
+- [Architecture](references/architecture.md) — Layers and critical paths; end section **Code patterns for review** = async, distributed, KV cache, validation, connectors, errors, logging (former code-patterns content)
 - [Diffusion checklist](references/diffusion-checklist.md) — Diffusion PR dimensions, PR body template, Quick Red Flags
 - [Tests & docs checklist](references/tests-docs-checklist.md) — High-risk coverage matrix and docs sync
 - [Maintainer style study](references/maintainer-style-study.md) — Example maintainer phrasing

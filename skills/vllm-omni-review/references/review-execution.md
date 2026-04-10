@@ -530,6 +530,8 @@ When you fill in the triage template above, use:
 
 ## Python style (review flags)
 
+*This section replaces the former standalone `python-style-guide.md` — use it for consistent style nits (imports, naming, bare `except`, etc.).*
+
 Key rules to check when reviewing Python code in vLLM-OMNI. Based on Google Python Style Guide.
 
 ### Imports
