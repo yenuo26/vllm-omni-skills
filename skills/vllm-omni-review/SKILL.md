@@ -120,7 +120,7 @@ BLOCKER scan:
 
 For detailed anti-patterns with code examples, see [references/blocker-patterns.md](references/blocker-patterns.md).
 
-**If blockers found:** Track issues internally (category + file + line). Request changes on GitHub only for real blockers; do not paste structured `BLOCKING ISSUES:` templates into the review body (see Step 6).
+**If blockers found:** Track issues internally (category + file + line). Do not paste structured `BLOCKING ISSUES:` templates into the review body (see Step 6).
 
 **If no blockers:** List non-blocking suggestions and proceed to Step 3.
 
@@ -214,11 +214,14 @@ Be explicit in review comments. Treat "manual verification only" as insufficient
 
 ### Step 8: Final Verdict
 
-Use the review body to summarize:
+Post inline comments directly to GitHub as you find them. Do **not** submit a review event (APPROVE / COMMENT / REQUEST_CHANGES) — leave the verdict decision to the user.
+
+Summarize locally:
 - What was validated
 - What still lacks evidence
+- Recommended verdict (local presentation only)
 
-**Verdict:** Use the GitHub review event (`APPROVE` / `COMMENT` / `REQUEST_CHANGES`). Do not put structured verdict blocks in the review body.
+Recommended verdict mapping:
 
 - `APPROVE` — no blockers; body optional (empty is fine).
 - `COMMENT` — suggestions only; body optional (~50% should be empty).

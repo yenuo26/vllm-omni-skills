@@ -175,6 +175,8 @@ Keep replies to 1 sentence. Never a paragraph.
 
 ## Review Submission
 
+Post inline comments directly to GitHub as you find them. Do **not** submit a review event (APPROVE / COMMENT / REQUEST_CHANGES) — leave the verdict decision to the user. Present the recommended verdict locally in the conversation instead.
+
 Post review with inline comments. The `body` field can be empty string for ~50% of reviews.
 
 ```bash
