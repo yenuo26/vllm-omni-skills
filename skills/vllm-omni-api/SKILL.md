@@ -15,6 +15,8 @@ vLLM-Omni exposes OpenAI-compatible REST endpoints for all modalities. Existing 
 vllm serve <model-name> --omni --port 8091
 ```
 
+Diffusion models benefit from multi-thread weight loading (enabled by default), which parallelizes safetensors shard loading for faster startup. See vllm-omni-perf for details.
+
 ## Core Endpoints
 
 | Endpoint | Method | Purpose |

@@ -92,6 +92,7 @@ Video generation is significantly more compute-intensive than image generation:
 
 - A single video may take 2-10 minutes on a single GPU
 - Multi-GPU tensor parallelism strongly recommended for 14B models
+- Multi-thread weight loading (enabled by default) significantly reduces cold-start time for Wan2.2 models
 - Enable TeaCache for diffusion acceleration (see vllm-omni-perf skill)
 - CPU offloading can help fit larger models:
   ```bash

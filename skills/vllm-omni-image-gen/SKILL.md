@@ -24,7 +24,7 @@ vLLM-Omni supports text-to-image generation and image editing through diffusion 
 | Dreamid-Omni | `bytedance/dreamid-omni` | Text-to-image (ByteDance) | 24 GB |
 | SD 3.5 Medium | `stabilityai/stable-diffusion-3.5-medium` | Text-to-image | 12 GB |
 | OmniGen2 | `OmniGen2/OmniGen2` | Text-to-image | 24 GB |
-| HunyuanImage3.0 | `tencent/HunyuanImage-3.0` | Text-to-image | 40 GB |
+| HunyuanImage3.0 | `tencent/HunyuanImage-3.0` | Text-to-image + editing | 40 GB |
 
 **New (2026-03-15):** Dreamid-Omni from ByteDance and FLUX.2-dev with cache_dit support are now available.
 
@@ -72,7 +72,7 @@ curl -s http://localhost:8091/v1/chat/completions \
 
 ## Image Editing
 
-For models that support image editing (Qwen-Image-Edit, LongCat-Image-Edit):
+For models that support image editing (Qwen-Image-Edit, LongCat-Image-Edit, HunyuanImage3.0):
 
 ```python
 from vllm_omni.entrypoints.omni import Omni
@@ -106,7 +106,7 @@ Note: diffusion pipeline `max_batch_size` defaults to 1. Input lists are process
 - **Fast prototyping**: Z-Image-Turbo (small, fast)
 - **High quality**: FLUX.1-dev or HunyuanImage3.0
 - **Low VRAM**: SD 3.5 Medium or FLUX.2-klein-4B
-- **Image editing**: Qwen-Image-Edit
+- **Image editing**: Qwen-Image-Edit or HunyuanImage3.0
 - **Understanding + generation**: BAGEL-7B-MoT
 
 ## Troubleshooting
@@ -118,7 +118,11 @@ Note: diffusion pipeline `max_batch_size` defaults to 1. Input lists are process
 vllm serve <model> --omni --cpu-offload-gb 10
 ```
 
-**Slow generation**: Enable TeaCache for 1.5-2x speedup (see vllm-omni-perf skill).
+**Slow generation**: Enable TeaCache for 1.5-2x speedup (see vllm-omni-perf skill). Multi-thread weight loading (enabled by default for diffusion models) also reduces startup time significantly.
+
+**HunyuanImage3.0 load_weights error**: Fixed in #1598. Ensure you are using the latest vllm-omni.
+
+**GLM-Image filepath errors**: Fixed in #1609. Models with `model_subdir` or `tokenizer_subdir` now resolve paths correctly.
 
 ## References
 

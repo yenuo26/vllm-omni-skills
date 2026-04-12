@@ -20,6 +20,7 @@ vLLM-Omni provides multiple optimization levers for both autoregressive and diff
 | Sequence Parallelism | DiT models | Near-linear | None |
 | CPU Offloading | All models | Enables larger models | Adds latency |
 | GPU Memory Tuning | All models | More throughput | None |
+| Multi-Thread Weight Loading | Diffusion models | Faster startup | None |
 
 ## TeaCache (Diffusion Acceleration)
 
@@ -53,6 +54,15 @@ Can be combined with TeaCache, but test independently first to measure impact.
 ## Quantization
 
 For full quantization guidance (method selection, AWQ/GPTQ workflows, FP8 KV cache, quality verification), see the dedicated **[vllm-omni-quantization](../vllm-omni-quantization/SKILL.md)** skill.
+
+## Multi-Thread Weight Loading
+
+Diffusion models (Qwen-Image, Wan2.2, FLUX, HunyuanImage3.0, etc.) load safetensors shards in parallel using a thread pool instead of sequentially. This is enabled by default and significantly reduces cold-start time:
+
+- Qwen-Image: ~3 min -> substantially faster
+- Wan2.2-I2V 14B: ~5 min -> substantially faster
+
+No configuration needed -- this is automatic for all diffusion models using safetensors format.
 
 ## CPU Offloading
 

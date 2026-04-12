@@ -158,6 +158,8 @@ For a step-by-step guide on integrating a new TTS model into vLLM-Omni, see the 
 
 **Audio quality issues**: Ensure reference audio for voice cloning is clean (no background noise), 10-20 seconds, single speaker.
 
+**Qwen3-TTS code predictor crash**: Fixed in #1619. If you encounter a crash in the code predictor stage, update to the latest vllm-omni.
+
 **Slow generation**: TTS models are autoregressive - generation time scales with output duration. Enable async_chunk for lower first-packet latency. For throughput, increase `max_batch_size`.
 
 ## References
