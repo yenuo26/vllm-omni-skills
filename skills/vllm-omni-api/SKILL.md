@@ -31,6 +31,7 @@ Diffusion models benefit from multi-thread weight loading (enabled by default), 
 | `/health` | GET | Server health check |
 | `/v1/models` | GET | List loaded models |
 
+`/v1/audio/voice/upload` endpoint restored. `/v1/audio/speech` supports `response_format: "wav"` with streaming.
 `/v1/audio/speech` supports `response_format: "wav"` with streaming.
 
 `/v1/images/generations` supports client-side request cancellation via `AbortController` (or `client.cancel()` in the openai Python SDK). `--max-generated-image-size` is enforced on both `/v1/images/generations` and `/v1/images/edits` (returns HTTP 400 for oversized requests).
@@ -81,15 +82,20 @@ curl -s http://localhost:8091/v1/chat/completions \
 
 ## Image Generation Endpoint
 
+Supports `output_format` (png, jpeg, webp) and `size` in both request and response:
+
 ```bash
 curl -s http://localhost:8091/v1/images/generations \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "a cup of coffee on a table",
     "size": "1024x1024",
-    "n": 1
-  }' | jq '.data[0].url'
+    "n": 1,
+    "output_format": "png"
+  }' | jq '.data[0]'
 ```
+
+The response includes `output_format` and `size` fields. When `output_format` is not specified, defaults to `png`.
 
 ## Streaming Responses
 

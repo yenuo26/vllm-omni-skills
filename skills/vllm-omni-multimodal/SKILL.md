@@ -177,6 +177,8 @@ Qwen3-Omni is compatible with the v2 model runner (vllm 0.19). Uses native `laun
 
 **Out of memory with multi-modal input**: Large images/videos consume significant memory. Use the validation workflow above to check file sizes before sending.
 
+**Qwen3-Omni performance**: The multi-stage pipeline optimizes CPU hidden-state copying — only copies to CPU when downstream stages need payloads. Text-only inference (without `--omni`) is supported for benchmarking via `use_omni: false`. Fixed in #3203.
+
 ## References
 
 - For Qwen-Omni architecture and advanced config, see [references/qwen-omni.md](references/qwen-omni.md)
