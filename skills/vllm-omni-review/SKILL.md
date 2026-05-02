@@ -32,11 +32,19 @@ Inspired by common PR-review skill patterns (e.g. explicit modes + tool choice);
 
 **Parallel investigation:** Large diffs or multiple subsystems (e.g. `entrypoints/` + `engine/` + `diffusion/`) → split by directory or concern and investigate **in parallel** when subagents exist.
 
+**Subagent context compression:** Never fetch a 500-line source file into your main context. Instead, delegate to a subagent with a specific question (e.g. "What does `_resolve_ref_audio` return?") and get back a compact summary. This is the single biggest token saver — a subagent burns its own context, you get back a paragraph.
+
+**When to use subagents vs direct fetch:**
+- Reading surrounding code to verify a pattern → subagent (returns summary)
+- Reading a reference file you need for the blocker scan → direct (you need the full patterns)
+- Fetching PR metadata / diff → direct (small, needed in main context)
+- Verifying function signatures, return types, class hierarchies → subagent
+
 ## Which reference to load (do not load everything)
 
 | Situation | Open |
 |-----------|------|
-| Every review | [references/review-execution.md](references/review-execution.md) — gates, `gh` commands, comment budget, tone, batch/CI triage, Python style flags |
+| Every review | [references/review-execution.md](references/review-execution.md) — gates, `gh` commands, comment budget, tone, **incremental posting**, batch/CI triage, Python style flags |
 | Prefix / multi-skill / hardware guess | [references/review-routing.md](references/review-routing.md) |
 | Blocker scan details + merge-blocking patterns | [references/blocker-patterns.md](references/blocker-patterns.md) — Part 1 patterns; **Part 2** = former “pitfalls” (footguns, MRO, connectors, async, etc.) |
 | System layout + **code-pattern review** (async, connectors, validation, …) | [references/architecture.md](references/architecture.md) — includes “Code patterns for review” at the end |
@@ -54,8 +62,9 @@ Always run the blocker scan. Under context pressure, do a shallow scan of the mo
 
 ## Core Workflow
 
-Check whether this PR is still a draft or WIP in the PR title, if so, end the review process. 
+Check whether this PR is still a draft or WIP in the PR title, if so, end the review process.
 
+**Token budget principle:** Post inline comments as you find them. Use subagents for codebase investigation. Load references only after skimming the diff. If you're past ~60% context and haven't posted comments, wrap up and post what you have — partial review posted is better than a perfect review lost.
 
 ### Step 0: Verify Review Gates First
 
@@ -65,7 +74,9 @@ For gate commands, review submission, and comment style, see [references/review-
 
 Then continue with the workflow below.
 
-### Step 1: Gather Minimal Context
+### Step 1: Fetch Diff First, Then Decide What to Load
+
+**Diff-first loading:** Fetch the diff and PR metadata first. Skim the diff to understand what subsystems are touched, then load ONLY the references that match. Do not load references speculatively.
 
 Fetch:
 - PR metadata and changed files
@@ -73,7 +84,7 @@ Fetch:
 - Linked issues for `[Bugfix]` and `[Feature]` PRs only when conventions are unclear
 - Related PRs only when conventions or prior decisions are unclear
 
-Group changes mentally by **kind** (runtime code, tests, docs, configs) to see where risk sits; then load references (Step 4) only for areas touched.
+Group changes by **kind** (runtime code, tests, docs, configs) to see where risk sits; then load references (Step 4) only for areas touched.
 
 Do not fetch broad extra context unless the diff leaves real ambiguity.
 
@@ -158,9 +169,70 @@ For `[Feature]` PRs affecting performance or `[Performance]` PRs, use the checkl
 
 Be explicit in review comments. Treat "manual verification only" as insufficient unless automation is genuinely impossible.
 
+### Step 6: Verify Perf/Accuracy Claims (Blocking)
+
+**When to activate:** PR has `[Performance]` prefix, or PR body contains quantitative perf/accuracy claims (latency, throughput, VRAM, speedup, accuracy metrics), or Step 5 flagged missing benchmarks.
+
+**Load** [references/perf-verification.md](references/perf-verification.md).
+
+**Workflow:**
+
+1. Detect claims — extract numbers from PR body using regex patterns
+2. Detect hardware — run hardware detection to determine available GPU/VRAM/platform
+3. Check feasibility — compare estimated model size (weights + KV cache + overhead) against available VRAM
+4. Generate benchmark plan — map PR type to appropriate benchmark runner
+5. **Pre-execution gate** — present benchmark plan, estimated duration, and model/hardware to user; ask for confirmation before executing
+6. Execute (if confirmed) — run before/after benchmarks via git worktrees, with a **20-minute hard timeout** per run
+7. Report — produce Claimed vs Measured table with CONFIRMED / NOT_CONFIRMED verdict
+
+**Graceful degradation:**
+
+| Level | Condition | What happens |
+|-------|-----------|-------------|
+| Full verification | GPU available, model fits | Run before/after benchmarks |
+| Partial verification | GPU available, model needs offload | Run with `--cpu-offload-gb`, note in report |
+| Static-only | No GPU or model too large | Analyze benchmark scripts in diff for correctness, flag implausible claims |
+| Skip | No relevant perf claims | Do not activate |
+
+**Delivery:** Local report first, ask user before posting as PR comment. If verification reveals a confirmed NOT_CONFIRMED for accuracy or VRAM regression, escalate to REQUEST_CHANGES via Step 8.
+
+### Step 7: Evaluate Test Quality (Blocking)
+
+**When to activate:** PR adds or modifies test files, or PR touches core code (`engine/`, `stages/`, `connectors/`) without adding tests, or PR is test-only.
+
+**Load** [references/test-quality-evaluation.md](references/test-quality-evaluation.md).
+
+**Workflow:**
+
+1. Static analysis (always runs) — check assertion quality, anti-patterns, marker compliance, edge case coverage
+2. Detect hardware — same detection as Step 6 (cross-referenced from `perf-verification.md`)
+3. Find affected tests — map changed source files to test files via grep (not path convention)
+4. Filter by hardware — skip tests requiring unavailable resources
+5. Run tests — `pytest` with `--run-level core_model` by default; use `advanced_model` only if hardware is sufficient
+6. Categorize failures — test bug / code bug / infrastructure / flaky
+7. Assess quality — score assertion quality, edge case coverage, marker compliance, anti-patterns (A-D grades for internal analysis)
+
+**Graceful degradation:**
+
+| Level | Condition | What happens |
+|-------|-----------|-------------|
+| Full analysis | Hardware matches test markers | Static + runtime execution |
+| Static-only | Hardware doesn't match or no GPU | Static analysis only; report which tests were skipped |
+
+**Delivery:** Local assessment first, ask user before posting. Convert worst 1-2 findings to inline comments (counts against comment budget). If D-grade dimension or code bug found, escalate to REQUEST_CHANGES via Step 8.
+
+### Step 8: Incremental Posting + Final Verdict
+
+**Post inline comments directly to GitHub as you find them.** Do not accumulate comments for a batch post at the end. Each `gh api` call posts one or more comments immediately. If context runs out mid-review, the comments already posted are safe on GitHub.
+
+Posting strategy:
+- After completing the blocker scan, post any blocking-issue comments immediately
+- As domain review surfaces issues, post each comment right away
+- Minor style nits can be batched (up to 3) in a single review call if they're on the same file
+- If you find yourself past ~60% context, stop investigating and post whatever you have
 ### Step 6: Final Verdict
 
-Post inline comments directly to GitHub as you find them. Do **not** submit a review event (APPROVE / COMMENT / REQUEST_CHANGES) — leave the verdict decision to the user.
+Do **not** submit a review event (APPROVE / COMMENT / REQUEST_CHANGES) — leave the verdict decision to the user.
 
 Summarize locally:
 - What was validated
