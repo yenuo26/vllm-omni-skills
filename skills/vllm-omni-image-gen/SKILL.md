@@ -120,6 +120,8 @@ vllm serve <model> --omni --cpu-offload-gb 10
 
 **Slow generation**: Enable TeaCache for 1.5-2x speedup (see vllm-omni-perf skill). Multi-thread weight loading (enabled by default for diffusion models) also reduces startup time significantly.
 
+**HunyuanImage3.0 garbage output in offline inference**: Fixed in #3243. The AR stage now uses the Instruct chat template (`User:`/`Assistant:` framing) instead of the pretrain format. Trigger tags (`💭`, `<recaption>`) must go *after* `Assistant:`, not before the user prompt. Use `build_prompt_tokens()` from `vllm_omni.diffusion.models.hunyuan_image3.prompt_utils` for segment-by-segment tokenization that avoids cross-segment BPE merges. MoE routing now runs in fp32 (matching HF). VAE pixel values must stay fp32 through preprocessing — do not pre-cast to bf16.
+
 **HunyuanImage3.0 load_weights error**: Fixed in #1598. Ensure you are using the latest vllm-omni.
 
 **GLM-Image filepath errors**: Fixed in #1609. Models with `model_subdir` or `tokenizer_subdir` now resolve paths correctly.

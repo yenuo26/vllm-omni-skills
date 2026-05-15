@@ -87,6 +87,22 @@ SUPPORTED_MODELS = {
 }
 ```
 
+For out-of-tree plugins, use the public API instead:
+
+```python
+from vllm_omni.diffusion.registry import register_diffusion_model
+
+register_diffusion_model(
+    model_arch="MyNewModel",
+    module_name="my_plugin.models.my_new_model",
+    class_name="MyNewModelPipeline",
+    pre_process_func_name="pre_process",  # optional
+    post_process_func_name="post_process",  # optional
+)
+```
+
+This registers custom diffusion pipelines without modifying core source. For out-of-tree plugins, `module_name` should be the full import path of the module containing the pipeline class.
+
 ### Step 4: Add Stage Configuration
 
 Create a default stage config YAML:
