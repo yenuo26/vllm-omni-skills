@@ -12,10 +12,12 @@ message matches (?i)scheduled nightly.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -74,16 +76,25 @@ def http_text_tail(
         url,
         headers={"Authorization": f"Bearer {token}"},
     )
-    buf = bytearray()
-    with urllib.request.urlopen(req, timeout=300) as resp:
-        while True:
-            chunk = resp.read(262_144)
-            if not chunk:
-                break
-            buf.extend(chunk)
-            if len(buf) > max_read:
-                buf = buf[-tail_keep:]
-    return buf.decode("utf-8", errors="replace")
+    last_err: Exception | None = None
+    for attempt in range(3):
+        buf = bytearray()
+        try:
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                while True:
+                    chunk = resp.read(262_144)
+                    if not chunk:
+                        break
+                    buf.extend(chunk)
+                    if len(buf) > max_read:
+                        buf = buf[-tail_keep:]
+            return buf.decode("utf-8", errors="replace")
+        except (http.client.IncompleteRead, urllib.error.URLError, TimeoutError, OSError) as e:
+            last_err = e
+            if attempt < 2:
+                time.sleep(min(8, 2**attempt))
+    assert last_err is not None
+    raise last_err
 
 
 def latest_scheduled_nightly_number(token: str) -> int:

@@ -2,11 +2,12 @@
 """
 Compose a full Markdown test report:
   - Metrics overview: buildkite_build_stats.py --markdown (first body section)
-  - Test content (job scope): embed references/ci-job-test-scope.md
+  - Test content (job scope): rows from the resolved scheduled nightly (reportable jobs) +
+    Scope / intent looked up from references/ci-job-test-scope.md
   - Local testing: embed references/local-test-matrix.md
   - CI testing: Buildkite build JSON + nightly_job_pytest_table.py (latest scheduled nightly)
-  - CI testing: GitHub Search — label bug + [CI Failure] title prefix (case-insensitive; current UTC month)
-  - Open issues: GitHub open bugs (March, UTC, in github_march_bug_rows)
+  - CI testing: GitHub Search — label:bug + label:ci-failure; created range matches --stats-from/--stats-to
+  - Open issues: GitHub open bugs (label:bug); filter `created_at` to --stats-from..--stats-to (UTC)
 
 Requires BUILDKITE_TOKEN or BUILDKITE_API_TOKEN in the environment.
 Run from skill dir: python scripts/compose_full_report.py
@@ -15,12 +16,12 @@ Run from skill dir: python scripts/compose_full_report.py
 from __future__ import annotations
 
 import argparse
-import calendar
 import json
 import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -32,8 +33,7 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 from md_table import render_markdown_table
 
-CI_FAILURE_STANDALONE_RE = re.compile(r"^\[CI Failure\]", re.IGNORECASE)
-CI_FAILURE_PREFIX_RE = re.compile(r"^\[Bug\]\s*:\s*\[CI Failure\]", re.IGNORECASE)
+CI_FAILURE_LABEL = "ci-failure"  # matches GitHub label on vllm-project/vllm-omni
 
 ORG = "vllm"
 PIPELINE = "vllm-omni"
@@ -80,9 +80,26 @@ def http_get_json(
     except ImportError:
         requests = None
     if requests is not None:
-        r = requests.get(url, headers=h, timeout=timeout, verify=verify)
-        r.raise_for_status()
-        return r.json()
+        last_err: Exception | None = None
+        for attempt in range(12):
+            try:
+                r = requests.get(url, headers=h, timeout=timeout, verify=verify)
+                if r.status_code == 429:
+                    ra = r.headers.get("Retry-After", "60")
+                    try:
+                        wait_s = int(float(ra)) + 1
+                    except ValueError:
+                        wait_s = 61
+                    time.sleep(min(180, max(1, wait_s)))
+                    continue
+                r.raise_for_status()
+                return r.json()
+            except requests.RequestException as e:
+                last_err = e
+                if attempt < 11:
+                    time.sleep(min(8, 2 ** min(attempt, 3)))
+        assert last_err is not None
+        raise last_err
     req = urllib.request.Request(url, headers=h)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8", errors="replace"))
@@ -108,10 +125,29 @@ def latest_scheduled_nightly_number(token: str) -> int:
     sys.exit("No scheduled nightly build found on main (per_page=50).")
 
 
-def github_march_bug_rows(
-    gh_token: str | None, month_prefix: str
+def _issue_created_date_utc(issue: dict) -> str | None:
+    """``YYYY-MM-DD`` from GitHub ``created_at`` or ``None``."""
+    ca = issue.get("created_at")
+    if not ca or not isinstance(ca, str):
+        return None
+    s = ca.strip().replace("Z", "+00:00")
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:10]
+    return None
+
+
+def github_open_bug_rows_in_range(
+    gh_token: str | None,
+    date_from: str,
+    date_to: str,
 ) -> tuple[int, int, str]:
-    """Return (open_bug_total, month_count, markdown_table_body). month_prefix = YYYY-MM (UTC)."""
+    """
+    Paginate **open** issues with label ``bug`` (PR entries excluded).
+
+    Return ``(total_open_bug_fetched, count_in_created_range, markdown_table)``.
+    ``count_in_created_range`` = issues whose **UTC calendar date** of ``created_at``
+    lies in ``[date_from, date_to]`` inclusive (``YYYY-MM-DD`` strings).
+    """
     base = "https://api.github.com/repos/vllm-project/vllm-omni/issues"
     all_items: list = []
     page = 1
@@ -134,14 +170,14 @@ def github_march_bug_rows(
             break
         page += 1
 
-    march = [
+    in_range = [
         i
         for i in all_items
-        if str(i.get("created_at") or "").startswith(month_prefix)
+        if (d := _issue_created_date_utc(i)) is not None and date_from <= d <= date_to
     ]
-    march.sort(key=lambda x: x["created_at"], reverse=True)
+    in_range.sort(key=lambda x: x["created_at"], reverse=True)
     row_cells: list[list[str]] = []
-    for i in march:
+    for i in in_range:
         t = (i.get("title") or "").replace("|", "\\|").replace("\n", " ")
         u = (i.get("user") or {}).get("login", "")
         row_cells.append(
@@ -157,28 +193,67 @@ def github_march_bug_rows(
         ["Issue", "Title", "Opened at", "Status", "Owner"],
         row_cells,
     )
-    return len(all_items), len(march), body
+    return len(all_items), len(in_range), body
 
 
-def is_ci_failure_title(title: str) -> bool:
-    t = (title or "").strip()
-    if CI_FAILURE_STANDALONE_RE.match(t):
-        return True
-    if CI_FAILURE_PREFIX_RE.match(t):
-        return True
-    return False
+def render_open_issues_section(
+    stats_from: str,
+    stats_to: str,
+    gh_token: str | None,
+) -> str:
+    """Markdown for ``## Open issues`` block (GitHub REST, open ``label:bug`` only)."""
+    github_open_error = ""
+    try:
+        open_total, open_range_n, issue_rows = github_open_bug_rows_in_range(
+            gh_token, stats_from, stats_to
+        )
+    except Exception as exc:
+        open_total = 0
+        open_range_n = 0
+        issue_rows = render_markdown_table(
+            ["Issue", "Title", "Opened at", "Status", "Owner"],
+            [
+                [
+                    "*—*",
+                    "*Failed to fetch; set `GITHUB_TOKEN` or fill in manually*",
+                    "*—*",
+                    "*—*",
+                    "*—*",
+                ]
+            ],
+        )
+        github_open_error = str(exc)
+
+    github_open_note = (
+        f" **Note:** open-bugs fetch failed (`{github_open_error}`)."
+        if github_open_error
+        else ""
+    )
+    return (
+        f"## Open issues (stats window)\n\n"
+        f"Open issues labeled **bug**, state **open**, **excluding PRs**, with **`created_at`** "
+        f"(UTC date) in **{stats_from}** … **{stats_to}** (same as Buildkite **`--stats-from`** / "
+        f"**`--stats-to`**): **{open_range_n}** (total open `bug` issues when fetched: "
+        f"**{open_total}**).{github_open_note}\n\n"
+        f"{issue_rows}\n"
+    )
 
 
 def github_ci_failure_analysis_rows(
-    month_prefix: str, gh_token: str | None
+    created_from: str,
+    created_to: str,
+    gh_token: str | None,
 ) -> tuple[int, str]:
-    """Issues labeled bug, title [CI Failure] prefix (case-insensitive), created in month_prefix (YYYY-MM)."""
-    y, m = month_prefix.split("-")
-    year, mon = int(y), int(m)
-    last = calendar.monthrange(year, mon)[1]
+    """
+    Issues with labels ``bug`` and ``ci-failure``, ``created_at`` (UTC) in
+    ``created_from`` .. ``created_to`` (inclusive, YYYY-MM-DD).
+
+    Same date window as ``compose_full_report.py`` ``--stats-from`` / ``--stats-to``
+    (Buildkite metrics window).
+    """
     q = (
-        f"repo:vllm-project/vllm-omni is:issue label:bug "
-        f"created:{month_prefix}-01..{month_prefix}-{last:02d}"
+        f"repo:vllm-project/vllm-omni is:issue label:bug label:{CI_FAILURE_LABEL} "
+        f"created:{created_from}..{created_to}"
     )
     base = "https://api.github.com/search/issues?q=" + urllib.parse.quote(q)
     headers = {
@@ -199,8 +274,6 @@ def github_ci_failure_analysis_rows(
         for i in items:
             if i.get("pull_request"):
                 continue
-            if not is_ci_failure_title(str(i.get("title") or "")):
-                continue
             collected.append(i)
         if len(items) < 100:
             break
@@ -219,6 +292,55 @@ def github_ci_failure_analysis_rows(
         return 0, ""
     return len(collected), render_markdown_table(
         ["Issue #", "Title", "Status"], row_cells
+    )
+
+
+def render_ci_failure_section(
+    stats_from: str,
+    stats_to: str,
+    gh_token: str | None,
+) -> str:
+    """
+    Markdown for ``### Analysis (CI Failure)`` … (GitHub Search only; no Buildkite).
+
+    Used by ``compose_full_report.py`` and ``patch_report_ci_failure.py``.
+    """
+    try:
+        ci_fail_n, ci_fail_rows = github_ci_failure_analysis_rows(
+            stats_from, stats_to, gh_token
+        )
+        ci_fail_error = ""
+    except Exception as exc:
+        ci_fail_n = -1
+        ci_fail_rows = ""
+        ci_fail_error = str(exc)
+
+    ci_filter_note = (
+        f"**Filter:** `label:bug` **and** `label:{CI_FAILURE_LABEL}`, "
+        f"`created` (UTC) **{stats_from}** … **{stats_to}** (same window as Buildkite metrics / "
+        f"`--stats-from` / `--stats-to`). "
+        f"**Cross-check:** "
+        f"[issues · bug + ci-failure](https://github.com/vllm-project/vllm-omni/issues?q=is%3Aissue+label%3Abug+label%3Aci-failure)."
+    )
+    if ci_fail_error:
+        return (
+            f"### Analysis (CI Failure)\n\n"
+            f"*GitHub Search API unavailable: {ci_fail_error}.* Fill in manually per "
+            f"[references/ci-github-ci-failure-issues.md](references/ci-github-ci-failure-issues.md) "
+            f"from [open bugs](https://github.com/vllm-project/vllm-omni/issues/?q=is%3Aissue%20state%3Aopen%20label%3Abug) "
+            f"and [closed bugs](https://github.com/vllm-project/vllm-omni/issues/?q=is%3Aissue%20state%3Aclosed%20label%3Abug).\n"
+        )
+    if ci_fail_n == 0:
+        return (
+            f"### Analysis (CI Failure)\n\n"
+            f"{ci_filter_note}\n\n"
+            f"*No matching issues in this date range.*\n"
+        )
+    return (
+        f"### Analysis (CI Failure)\n\n"
+        f"{ci_filter_note}"
+        f" **Rows in table:** {ci_fail_n}.\n\n"
+        f"{ci_fail_rows}\n"
     )
 
 
@@ -254,30 +376,79 @@ def extract_ci_markdown(stats_stdout: str) -> str:
     return (heading + part).strip()
 
 
-def test_scope_markdown(skill_dir: Path) -> str:
-    """Body for ## Test content (job scope) from references/ci-job-test-scope.md (demote ## to ###)."""
+def _job_scope_ref_lookup_key(cell: str) -> str:
+    """First column of a scope table row -> lookup key (matches Buildkite `job.name`)."""
+    t = (cell or "").replace("**", "").strip()
+    if " (" in t:
+        t = t.split(" (", 1)[0].strip()
+    return t
+
+
+def load_job_scope_lookup(ref_path: Path) -> dict[str, str]:
+    """
+    Parse pipe tables in ``ci-job-test-scope.md`` -> job name -> scope / intent (second column).
+
+    Skips separator rows and header cells ``Typical job name`` / ``Source``.
+    """
+    if not ref_path.is_file():
+        return {}
+    lookup: dict[str, str] = {}
+    for line in ref_path.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if not s.startswith("|"):
+            continue
+        parts = [p.strip() for p in s.split("|")[1:-1]]
+        if len(parts) < 2:
+            continue
+        k_raw, scope = parts[0], parts[1]
+        if not k_raw or re.match(r"^:?-+:?$", k_raw):
+            continue
+        key = _job_scope_ref_lookup_key(k_raw)
+        low = key.lower()
+        if low in ("typical job name", "source"):
+            continue
+        if not key:
+            continue
+        lookup[key] = scope.replace("|", "/")
+    return lookup
+
+
+def render_job_scope_section(build: dict, build_no: int, skill_dir: Path) -> str:
+    """
+    ``## Test content (job scope)``: one row per **reportable** job in this nightly
+    (same rule as Summary: omit ``Upload * Pipeline``), scope text from reference lookup.
+    """
     ref = skill_dir / "references" / "ci-job-test-scope.md"
-    if not ref.is_file():
-        return (
-            "## Test content (job scope)\n\n"
-            "*(references/ci-job-test-scope.md not found.)*\n"
-        )
-    raw = ref.read_text(encoding="utf-8")
-    lines = raw.splitlines()
-    if lines and lines[0].startswith("# "):
-        lines = lines[1:]
-    while lines and not lines[0].strip():
-        lines.pop(0)
-    out: list[str] = []
-    for line in lines:
-        if line.startswith("## ") and not line.startswith("### "):
-            line = "### " + line[3:]
-        out.append(line)
-    body = "\n".join(out).strip()
+    lookup = load_job_scope_lookup(ref)
+    jobs = build.get("jobs") or []
+    reportable = [
+        j
+        for j in jobs
+        if not UPLOAD_PIPELINE_RE.match((j.get("name") or "").strip())
+    ]
+    reportable.sort(key=lambda x: (x.get("name") or ""))
+    missing = "*—* *(not in reference; add to [references/ci-job-test-scope.md](references/ci-job-test-scope.md) or see log)*"
+    rows: list[list[str]] = []
+    for j in reportable:
+        name = (j.get("name") or "").replace("|", "/")
+        st = (j.get("state") or "").replace("|", "/")
+        jid = j.get("id") or ""
+        link = f"[open](https://buildkite.com/{ORG}/{PIPELINE}/builds/{build_no}#{jid})"
+        scope = lookup.get(name.strip(), missing)
+        rows.append([name, st, link, scope])
+    table = render_markdown_table(
+        ["Job (this nightly)", "State", "Step link", "Scope / intent"],
+        rows,
+    )
     return (
         "## Test content (job scope)\n\n"
-        "Canonical source: [references/ci-job-test-scope.md](references/ci-job-test-scope.md).\n\n"
-        f"{body}\n"
+        f"Jobs match **scheduled nightly** "
+        f"[#{build_no}](https://buildkite.com/{ORG}/{PIPELINE}/builds/{build_no}) "
+        "(**reportable** only: `Upload * Pipeline` omitted). "
+        "**Scope / intent** is looked up from "
+        "[references/ci-job-test-scope.md](references/ci-job-test-scope.md) "
+        "by exact job name (see categorized reference for maintenance).\n\n"
+        f"{table}\n"
     )
 
 
@@ -315,8 +486,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--stats-from",
-        default="2026-03-01",
-        help="buildkite_build_stats.py --from (UTC YYYY-MM-DD)",
+        default=None,
+        help=(
+            "buildkite_build_stats.py --from (UTC YYYY-MM-DD). "
+            "Default: first day of current UTC month (month-to-date, matches SKILL)."
+        ),
     )
     parser.add_argument(
         "--stats-to",
@@ -337,8 +511,10 @@ def main() -> None:
 
     skill_dir = Path(__file__).resolve().parent.parent
     scripts_dir = skill_dir / "scripts"
-    today_utc = datetime.now(timezone.utc).date().isoformat()
+    today_d = datetime.now(timezone.utc).date()
+    today_utc = today_d.isoformat()
     stats_to = args.stats_to or today_utc
+    stats_from = args.stats_from or today_d.replace(day=1).isoformat()
 
     build_no = latest_scheduled_nightly_number(token)
     build_url = (
@@ -359,21 +535,22 @@ def main() -> None:
     short = commit[:7] if len(commit) >= 7 else commit
     env = os.environ.copy()
 
+    stats_raw = run_script(
+        scripts_dir / "buildkite_build_stats.py",
+        ["--from", stats_from, "--to", stats_to, "--markdown"],
+        skill_dir,
+        env,
+    )
+    ci_md = extract_ci_markdown(stats_raw)
+
     pytest_md = run_script(
         scripts_dir / "nightly_job_pytest_table.py",
         ["--build", str(build_no)],
         skill_dir,
         env,
     )
-    stats_raw = run_script(
-        scripts_dir / "buildkite_build_stats.py",
-        ["--from", args.stats_from, "--to", stats_to, "--markdown"],
-        skill_dir,
-        env,
-    )
-    ci_md = extract_ci_markdown(stats_raw)
 
-    test_scope_md = test_scope_markdown(skill_dir)
+    test_scope_md = render_job_scope_section(build, build_no, skill_dir)
 
     local_md = local_testing_markdown(skill_dir)
 
@@ -383,43 +560,12 @@ def main() -> None:
             "## Per-job test execution", "### Per-job test execution", 1
         )
 
-    month_prefix = today_utc[:7]
     gh_token = (
         os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
     ).strip() or None
-    github_open_error = ""
-    try:
-        open_total, march_n, issue_rows = github_march_bug_rows(gh_token, month_prefix)
-    except Exception as exc:
-        open_total = 0
-        march_n = 0
-        issue_rows = render_markdown_table(
-            ["Issue", "Title", "Opened at", "Status", "Owner"],
-            [
-                [
-                    "*—*",
-                    "*Failed to fetch; set `GITHUB_TOKEN` or fill in manually*",
-                    "*—*",
-                    "*—*",
-                    "*—*",
-                ]
-            ],
-        )
-        github_open_error = str(exc)
+    open_issues_block = render_open_issues_section(stats_from, stats_to, gh_token)
 
-    github_open_note = (
-        f" **Note:** open-bugs fetch failed (`{github_open_error}`)."
-        if github_open_error
-        else ""
-    )
-
-    try:
-        ci_fail_n, ci_fail_rows = github_ci_failure_analysis_rows(month_prefix, gh_token)
-        ci_fail_error = ""
-    except Exception as exc:
-        ci_fail_n = -1
-        ci_fail_rows = ""
-        ci_fail_error = str(exc)
+    ci_failure_block = render_ci_failure_section(stats_from, stats_to, gh_token)
 
     out_path = args.out
     if out_path is None:
@@ -442,32 +588,6 @@ def main() -> None:
         if failed_jobs_rows
         else "*None.*"
     )
-
-    if ci_fail_error:
-        ci_failure_block = (
-            f"### Analysis (CI Failure)\n\n"
-            f"*GitHub Search API unavailable: {ci_fail_error}.* Fill in manually per "
-            f"[references/ci-github-ci-failure-issues.md](references/ci-github-ci-failure-issues.md) "
-            f"from [open bugs](https://github.com/vllm-project/vllm-omni/issues/?q=is%3Aissue%20state%3Aopen%20label%3Abug) "
-            f"and [closed bugs](https://github.com/vllm-project/vllm-omni/issues/?q=is%3Aissue%20state%3Aclosed%20label%3Abug).\n"
-        )
-    elif ci_fail_n == 0:
-        ci_failure_block = (
-            f"### Analysis (CI Failure)\n\n"
-            f"**Filter:** `label:bug`, title prefix **`[CI Failure]`** (**case-insensitive**), `created_at` (UTC) in **{month_prefix}**."
-            f" **Data sources:** [open `label:bug`](https://github.com/vllm-project/vllm-omni/issues/?q=is%3Aissue%20state%3Aopen%20label%3Abug) · "
-            f"[closed `label:bug`](https://github.com/vllm-project/vllm-omni/issues/?q=is%3Aissue%20state%3Aclosed%20label%3Abug).\n\n"
-            f"*No matching `label:bug` issues with a case-insensitive `[CI Failure]` title prefix this month ({month_prefix} UTC).*\n"
-        )
-    else:
-        ci_failure_block = (
-            f"### Analysis (CI Failure)\n\n"
-            f"**Filter:** `label:bug`, title prefix **`[CI Failure]`** (**case-insensitive**), `created_at` (UTC) in **{month_prefix}**."
-            f" **Data sources:** [open `label:bug`](https://github.com/vllm-project/vllm-omni/issues/?q=is%3Aissue%20state%3Aopen%20label%3Abug) · "
-            f"[closed `label:bug`](https://github.com/vllm-project/vllm-omni/issues/?q=is%3Aissue%20state%3Aclosed%20label%3Abug)."
-            f" **Rows in table:** {ci_fail_n}.\n\n"
-            f"{ci_fail_rows}\n"
-        )
 
     build_table_md = render_markdown_table(
         ["Field", "Value"],
@@ -518,21 +638,16 @@ def main() -> None:
 {pytest_ci}
 
 {ci_failure_block}
-## Open issues (current month)
-
-Open issues labeled **bug**, state **open**, **excluding PRs**, with **`created_at`** in **{month_prefix}** (UTC `YYYY-MM` prefix): **{march_n}** (total open `bug` issues when fetched: **{open_total}**).{github_open_note}
-
-{issue_rows}
-
+{open_issues_block}
 ## Data source
 
-- Job scope: `references/ci-job-test-scope.md`
+- Job scope: build **#{build_no}** reportable jobs × `references/ci-job-test-scope.md` (Scope / intent lookup)
 - Local matrix: `references/local-test-matrix.md`
 - Buildkite API: `{ORG}/{PIPELINE}` branch `main`
 - `scripts/nightly_job_pytest_table.py --build {build_no}`
-- `scripts/buildkite_build_stats.py --from {args.stats_from} --to {stats_to} --markdown` (includes GitHub bug first-response for metrics table)
-- GitHub: `GET /repos/vllm-project/vllm-omni/issues?state=open&labels=bug` (paginated, open issues section)
-- GitHub Search: `[CI Failure]`-prefixed bug issues (current month, case-insensitive prefix); see `references/ci-github-ci-failure-issues.md`
+- `scripts/buildkite_build_stats.py --from {stats_from} --to {stats_to} --markdown` (**bugs (first response, …)** = GitHub `label:bug` issues with `created_at` UTC date in the same `--from`..`--to` window)
+- GitHub: `GET /repos/vllm-project/vllm-omni/issues?state=open&labels=bug` (paginated); **Open issues** table = issues with `created_at` **UTC date** in `--stats-from`..`--stats-to`
+- GitHub Search: `label:bug` + `label:ci-failure`, `created` = `--stats-from`..`--stats-to` (UTC); see `references/ci-github-ci-failure-issues.md`
 """
     out_path.write_text(md, encoding="utf-8")
     print(f"Wrote {out_path}")

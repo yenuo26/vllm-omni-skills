@@ -6,27 +6,31 @@ The **CI testing** section is filled from Buildkite (scheduled nightly build lin
 
 ## Common stack (all rows)
 
-Torch **2.10.0**, Python **3.12**, Diffusers **0.37.0**, transformers **4.57.6**, huggingface_hub **0.36.2**.
+Torch **2.11.0**, Python **3.12**, Diffusers **0.37.1**, transformers **5.8.0**, huggingface_hub **1.13.0**.
 
 ## Test results analysis
 
 Per-matrix totals for **this round** (or the agreed window) of manually / offline-run cases; numbers are filled in by testers and **do not** auto-map to CI pytest counts.
 
-| CUDA | Torch | Hardware | Python | Diffusers | transformers | huggingface_hub | Tester | Total cases | Passed | Failed |
+### Functional testing
+
+| CUDA | Torch | Hardware | Python | Diffusers | transformers | huggingface_hub | Tester | Total cases | Passed Job | Failed Job |
 |------|-------|----------|--------|-----------|--------------|-----------------|--------|-------------|--------|--------|
-| 12.8 | 2.10.0 | A100 | 3.12 | 0.37.0 | 4.57.6 | 0.36.2 | zhumingjue138 | 141 | 140 | 1 |
-| 12.8 | 2.10.0 | H800 | 3.12 | 0.37.0 | 4.57.6 | 0.36.2 | yenuo26 | 141 | 141 | 0 |
-| 12.8 | 2.10.0 | H20 | 3.12 | 0.37.0 | 4.57.6 | 0.36.2 | ZJY0516 | 141 | 141 | 0 |
-| 12.9 | 2.10.0 | A100 | 3.12 | 0.37.0 | 4.57.6 | 0.36.2 | zhumingjue138 | 141 | 141 | 0 |
-| 12.9 | 2.10.0 | H800 | 3.12 | 0.37.0 | 4.57.6 | 0.36.2 | yenuo26 | 141 | 141 | 0 |
-| 12.9 | 2.10.0 | H20 | 3.12 | 0.37.0 | 4.57.6 | 0.36.2 | ZJY0516 | 141 | 141 | 0 |
-| 13.0 | 2.10.0 | H800 | 3.12 | 0.37.0 | 4.57.6 | 0.36.2 | yenuo26 | 141 | 141 | 0 |
-| 13.0 | 2.10.0 | H20 | 3.12 | 0.37.0 | 4.57.6 | 0.36.2 | ZJY0516 | 141 | 141 | 0 |
+| 13.0 | 2.11.0 | H200 | 3.12 | 0.37.1 | 5.8.0 | 1.13.0 | yenuo26 | 19 | 13 | 6 |
+
+### Long-run stability
+
+| CUDA | Torch | Hardware | Python | Diffusers | transformers | huggingface_hub | Tester | Scenario (e.g. load / duration) | Result |
+|------|-------|----------|--------|-----------|--------------|-----------------|--------|--------------------------------|--------|
+| 13.0 | 2.11.0 | H200 | 3.12 | 0.37.1 | 5.8.0 | 1.13.0 | zhumingjue | wan2.2 24h | Passed |
+| 13.0 | 2.11.0 | H200 | 3.12 | 0.37.1 | 5.8.0 | 1.13.0 | zhumingjue | qwen-image 24h | Passed |
+| 13.1 | 2.11.0 | A100 | 3.12 | 0.37.1 | 5.7.0 | 1.13.0 | zhumingjue | wan2.2 24h | Passed |
+| 13.1 | 2.11.0 | A100 | 3.12 | 0.37.1 | 5.7.0 | 1.13.0 | zhumingjue | qwen-image 24h | Passed |
+| 13.1 | 2.11.0 | A100 | 3.12 | 0.37.1 | 5.7.0 | 1.13.0 | zhumingjue | qwen3-omni 24h | Passed |
+| 13.1 | 2.11.0 | A100 | 3.12 | 0.37.1 | 5.7.0 | 1.13.0 | zhumingjue | qwen3-tts 24h | Passed |
 
 ## Issue tracking
 
 | Issue | Description | Status |
 |-------|-------------|--------|
-| https://github.com/vllm-project/vllm-omni/issues/2255 | AssertionError: Pixel mismatch at (150, 400): expected (195, 34, 60), got (182, 25, 47) for tests/e2e/offline_inference/test_bagel_img2img.py | open |
-| https://github.com/vllm-project/vllm-omni/pull/2239 | incorrect answers for single words | closed |
-| https://github.com/vllm-project/vllm-omni/issues/2168 | torch.AcceleratorError: CUDA error: device-side assert triggered for Qwen2.5 model | closed |
+| https://github.com/vllm-project/vllm-omni/issues/3372 | [Bug]: stability test: stop sending requests after send 60 requests for qwen3-omni model | closed |

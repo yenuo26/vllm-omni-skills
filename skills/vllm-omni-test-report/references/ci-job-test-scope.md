@@ -1,6 +1,8 @@
 # CI job test scope (Scheduled nightly)
 
-This reference describes the intended test coverage of common **Buildkite job names** for **vllm-omni** (Scheduled nightly–oriented; exact pytest nodes follow each build’s logs). Steps that only upload artifacts—such as `Upload * Pipeline`—are not listed here.
+This reference holds **Scope / intent** text keyed by **Buildkite job name**. In composed reports, **`compose_full_report.py`** lists jobs from the **latest resolved scheduled nightly** and fills the **Scope / intent** column by **exact name match** against the tables below. If a new job appears in the pipeline, add a row here (or the report will show a placeholder).
+
+Steps that only upload artifacts—such as `Upload * Pipeline`—are not listed in nightly **reportable** job tables (same rule as the report Summary).
 
 ## Diffusion / video generation
 
@@ -41,5 +43,6 @@ This reference describes the intended test coverage of common **Buildkite job na
 
 ## Maintenance
 
-- Job names change with `.buildkite` / pipeline YAML; keep this file in sync when Buildkite labels change.
+- **Composed reports** (`compose_full_report.py`): **Test content (job scope)** is regenerated from the nightly build + this file; keep **first column** job labels aligned with Buildkite **exact** `job.name` strings.
+- Job names change with `.buildkite` / pipeline YAML; add or rename rows here when labels change.
 - For failure details, rely on each step’s **raw log** and the **Per-job test execution (pytest)** table.
