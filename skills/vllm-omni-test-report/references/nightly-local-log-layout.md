@@ -9,6 +9,8 @@ Sister artifact (same `logs/` directory): **`.../logs/nightly_perf_manual.xlsx`*
 
 **Before pulling logs for the next run:** if you already have **`nightly_perf_manual.xlsx`** locally from the **previous** sync, copy it to **`nightly_perf_manual.prev.xlsx`** in the same `logs/` folder. That file becomes the baseline so the nightly report can show **↑/↓** percentages after the new `nightly_perf_manual.xlsx` arrives. If you skip this step, deltas are omitted until a `.prev` file exists.
 
+Then **delete the local `nightly_jobs` directory** on your laptop (`rm -rf "$REPO_ROOT/logs/nightly_jobs"`) **before** `scp` / `rsync` / tarball extract, so old job folders are not merged with the new sync (details: [fetch steps](../vllm-omni-nightly-local/references/nightly-local-log-fetch.md)).
+
 - **Nightly HTML / Markdown** (`scripts/nightly_local_log_report.py`): if the file is present, a **性能测试结果** section renders each worksheet as a table (requires **`pip install openpyxl`**). Pytest log discovery below still uses only `nightly_jobs/`.
 
 ## Discovery rules (`scripts/nightly_local_log_report.py`)

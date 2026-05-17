@@ -490,26 +490,36 @@ def discover_job_logs(log_dir: Path) -> list[tuple[str, list[Path]]]:
     if not subs:
         return []
 
-    dirs = [p for p in subs if p.is_dir()]
-    if dirs:
-        groups: list[tuple[str, list[Path]]] = []
-        for d in sorted(dirs, key=lambda p: p.name):
-            resolved: list[Path] = []
-            for pat in ("*.log", "*.out", "*.txt"):
-                resolved.extend(sorted(d.glob(pat)))
-            if resolved:
-                groups.append((d.name, resolved))
-        return groups
+    merged: dict[str, list[Path]] = {}
 
-    files: list[Path] = []
+    for d in sorted((p for p in subs if p.is_dir()), key=lambda p: p.name):
+        resolved: list[Path] = []
+        for pat in ("*.log", "*.out", "*.txt"):
+            resolved.extend(sorted(d.glob(pat)))
+        if resolved:
+            merged.setdefault(d.name, []).extend(resolved)
+
     for p in subs:
         if not p.is_file():
             continue
         if p.suffix.lower() not in (".log", ".out", ".txt"):
             continue
-        files.append(p)
-    files.sort(key=lambda p: p.name)
-    return [(p.stem, [p]) for p in files]
+        merged.setdefault(p.stem, []).append(p)
+
+    out: list[tuple[str, list[Path]]] = []
+    for name in sorted(merged.keys()):
+        paths = merged[name]
+        if not paths:
+            continue
+        seen: set[str] = set()
+        uniq: list[Path] = []
+        for path in sorted(paths, key=lambda q: q.as_posix().lower()):
+            key = str(path.resolve())
+            if key not in seen:
+                seen.add(key)
+                uniq.append(path)
+        out.append((name, uniq))
+    return out
 
 
 # Local Test summary: group jobs by pillar × dimension (folder / job name prefix).
