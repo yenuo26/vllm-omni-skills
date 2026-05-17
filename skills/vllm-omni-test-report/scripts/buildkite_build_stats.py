@@ -62,6 +62,8 @@ PIPELINE_SLUG = "vllm-omni"
 FINISHED_STATES = {"passed", "failed", "canceled", "blocked", "skipped", "not_run"}
 SUCCESS_STATE = "passed"
 FAIL_STATE = "failed"
+# Step/job states (Buildkite)
+FAIL_JOB_STATES = {"failed", "broken"}
 
 
 def default_created_range_utc() -> tuple[str, str]:
@@ -709,6 +711,170 @@ def fetch_latest_main_non_nightly_build(token: str) -> dict | None:
         if len(builds) < per_page:
             return None
     return None
+
+
+def _bk_get_with_retries(
+    url: str,
+    token: str,
+    *,
+    params: dict[str, str | int] | None = None,
+) -> requests.Response:
+    last_exc: Exception | None = None
+    r: requests.Response | None = None
+    for attempt in range(10):
+        try:
+            r = requests.get(
+                url,
+                params=params or {},
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=180,
+            )
+            if r.status_code == 429:
+                ra = r.headers.get("Retry-After", "60")
+                try:
+                    wait_s = int(float(ra)) + 1
+                except ValueError:
+                    wait_s = 61
+                time.sleep(min(180, max(1, wait_s)))
+                continue
+            r.raise_for_status()
+            return r
+        except requests.RequestException as e:
+            last_exc = e
+            if attempt < 9:
+                time.sleep(min(8, 2 ** min(attempt, 3)))
+    assert last_exc is not None
+    raise last_exc
+
+
+def fetch_build_with_jobs(token: str, build_number: int | str) -> dict:
+    """GET a single build (includes ``jobs[]``)."""
+    url = (
+        f"{BUILDKITE_API_BASE}/organizations/{ORG_SLUG}/pipelines/"
+        f"{PIPELINE_SLUG}/builds/{build_number}"
+    )
+    r = _bk_get_with_retries(url, token)
+    out = r.json()
+    if not isinstance(out, dict):
+        raise ValueError("unexpected Buildkite JSON for single build")
+    return out
+
+
+def ensure_build_with_jobs(token: str, build: dict) -> dict:
+    """Refetch by number when the list endpoint omitted ``jobs``."""
+    if build.get("jobs"):
+        return build
+    num = build.get("number")
+    if num is None:
+        return build
+    return fetch_build_with_jobs(token, num)
+
+
+def fetch_latest_finished_non_main_build(token: str) -> dict | None:
+    """
+    Newest **finished** build with ``classify_build`` -> ``non_main`` (a.k.a. **ready** in metrics).
+
+    Scans all branches, newest-first, up to 10 API pages (50 builds/page).
+    """
+    url = f"{BUILDKITE_API_BASE}/organizations/{ORG_SLUG}/pipelines/{PIPELINE_SLUG}/builds"
+    per_page = 50
+    for page in range(1, 11):
+        r = _bk_get_with_retries(
+            url, token, params={"per_page": per_page, "page": page}
+        )
+        builds = r.json()
+        if not isinstance(builds, list) or not builds:
+            return None
+        for cand in builds:
+            st = (cand.get("state") or "").strip().lower()
+            if st not in FINISHED_STATES:
+                continue
+            if classify_build(cand) == "non_main":
+                return cand
+        if len(builds) < per_page:
+            return None
+    return None
+
+
+def fetch_latest_finished_merge_build(token: str) -> dict | None:
+    """
+    Newest **finished** build on ``main`` with ``classify_build`` -> ``main_non_nightly``
+    (**merge** in metrics: not scheduled nightly/weekly).
+    """
+    url = f"{BUILDKITE_API_BASE}/organizations/{ORG_SLUG}/pipelines/{PIPELINE_SLUG}/builds"
+    per_page = 50
+    for page in range(1, 11):
+        r = _bk_get_with_retries(
+            url,
+            token,
+            params={"branch": "main", "per_page": per_page, "page": page},
+        )
+        builds = r.json()
+        if not isinstance(builds, list) or not builds:
+            return None
+        for cand in builds:
+            st = (cand.get("state") or "").strip().lower()
+            if st not in FINISHED_STATES:
+                continue
+            if classify_build(cand) == "main_non_nightly":
+                return cand
+        if len(builds) < per_page:
+            return None
+    return None
+
+
+def failed_job_names_from_build(build: dict) -> list[str]:
+    names: list[str] = []
+    for j in build.get("jobs") or []:
+        st = (j.get("state") or "").lower()
+        if st in FAIL_JOB_STATES:
+            names.append((j.get("name") or "(unnamed)").replace("|", "/"))
+    return names
+
+
+def l2_l3_ready_merge_gate(token: str) -> tuple[bool, str]:
+    """
+    **测试结论** — «L2&L3最新一次通过率为100%».
+
+    Pass iff the latest **finished** **ready** (non-main) and **merge** (main non-nightly/weekly)
+    builds each have **no** failed/broken jobs (same bucket names as metrics table).
+    """
+    try:
+        rb = fetch_latest_finished_non_main_build(token)
+        mb = fetch_latest_finished_merge_build(token)
+    except Exception as exc:
+        return False, f"Buildkite 请求失败（{exc}）"
+
+    if rb is None:
+        return (
+            False,
+            "未找到已结束的 ready CI 构建（non-main，与 Metrics「ready」同口径）",
+        )
+    if mb is None:
+        return (
+            False,
+            "未找到已结束的 merge CI 构建（main 非 nightly/weekly，与 Metrics「merge」同口径）",
+        )
+
+    rb = ensure_build_with_jobs(token, rb)
+    mb = ensure_build_with_jobs(token, mb)
+    rf = failed_job_names_from_build(rb)
+    mf = failed_job_names_from_build(mb)
+    if not rf and not mf:
+        return True, ""
+
+    parts: list[str] = []
+    if rf:
+        rn = rb.get("number", "?")
+        head = "、".join(rf[:8])
+        tail = f" 等共 {len(rf)} 个" if len(rf) > 8 else ""
+        parts.append(f"ready #{rn} 存在失败 job：{head}{tail}")
+    if mf:
+        mn = mb.get("number", "?")
+        head = "、".join(mf[:8])
+        tail = f" 等共 {len(mf)} 个" if len(mf) > 8 else ""
+        parts.append(f"merge #{mn} 存在失败 job：{head}{tail}")
+    return False, "；".join(parts)
 
 
 def fetch_ut_coverage_simple_unit_test(

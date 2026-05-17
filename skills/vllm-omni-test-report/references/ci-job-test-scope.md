@@ -1,6 +1,6 @@
 # CI job test scope (Scheduled nightly)
 
-This reference holds **Scope / intent** text keyed by **Buildkite job name**. In composed reports, **`compose_full_report.py`** lists jobs from the **latest resolved scheduled nightly** and fills the **Scope / intent** column by **exact name match** against the tables below. If a new job appears in the pipeline, add a row here (or the report will show a placeholder).
+This reference holds **Scope / intent** text keyed by **Buildkite job name**. Use it when maintaining **optional** **Test content (job scope)** sections (e.g. hand-authored reports or `scripts/patch_report_scope_local.py` on Markdown); **`compose_full_report.py` does not emit that section.** If a new job appears in the pipeline, add a row here so patches stay accurate.
 
 Steps that only upload artifacts—such as `Upload * Pipeline`—are not listed in nightly **reportable** job tables (same rule as the report Summary).
 
@@ -43,6 +43,6 @@ Steps that only upload artifacts—such as `Upload * Pipeline`—are not listed 
 
 ## Maintenance
 
-- **Composed reports** (`compose_full_report.py`): **Test content (job scope)** is regenerated from the nightly build + this file; keep **first column** job labels aligned with Buildkite **exact** `job.name` strings.
+- **Release HTML / Markdown from `compose_full_report.py`:** does **not** include **Test content (job scope)**. To refresh that block in an existing `.md` report, use `scripts/patch_report_scope_local.py` (Buildkite + this file). Keep **first column** job labels aligned with Buildkite **exact** `job.name` strings.
 - Job names change with `.buildkite` / pipeline YAML; add or rename rows here when labels change.
 - For failure details, rely on each step’s **raw log** and the **Per-job test execution (pytest)** table.

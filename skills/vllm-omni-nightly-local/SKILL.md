@@ -1,30 +1,28 @@
 ---
 name: vllm-omni-nightly-local
-description: End-to-end HK nightly workflow - SSH with a user-supplied Host name, attach or allocate Slurm (`srun --jobid --overlap` or fallback srun), docker exec into a named container, run tools/nightly/run_nightly_jobs.sh, then parse logs under $REPO_ROOT/logs/nightly_perf_jobs into Markdown with per-job counts and failure reasons. Use when running local/cluster nightly jobs on HK, analyzing nightly_perf_jobs logs, or producing a Markdown test report in one flow.
+description: On HK - SSH, Slurm, non-interactive docker exec (bash -lc): **`source /rebase/.venv/bin/activate`** inside the container before repo commands, then run `tools/nightly/run_nightly_jobs.sh` and write logs under logs/nightly_jobs. Sync logs and optional logs/nightly_perf_manual.xlsx to your laptop, then use vllm-omni-test-report report kind nightly + scripts/nightly_local_log_report.py — **default output HTML** (`--html-report`) unless the user explicitly asks for Markdown. Use when allocating GPUs, running cluster nightly jobs, or fetching nightly_jobs before offline analysis.
 ---
 
-# vLLM-Omni Nightly Local (end-to-end)
+# vLLM-Omni Nightly Local (cluster run & log sync)
 
 ## Overview
 
-Single skill, four phases:
+1. **Login** - SSH, `squeue` / `srun --overlap`, `docker exec` without `-it` (see sections below).
+2. **Run cases** — In the same container shell as the script: **`source /rebase/.venv/bin/activate`** (see [references/nightly-local-environment.md](references/nightly-local-environment.md)), then set **Hugging Face / vLLM** env (see below and that reference), optionally **`nvidia-smi`** → **`CUDA_VISIBLE_DEVICES`**, then **`bash tools/nightly/run_nightly_jobs.sh`** with **`LOG_DIR="$REPO_ROOT/logs/nightly_jobs"`**。**Long runs:** run inside **`tmux`** / **`screen`** on the cluster, or start the script with **`nohup`** and redirect stdout/stderr to a log file under **`$REPO_ROOT/logs/`**, so an **SSH disconnect does not stop** the workload (details: [references/nightly-local-environment.md](references/nightly-local-environment.md) — **Long runs / SSH disconnect**).
+3. **Sync logs** - If you already have **`$REPO_ROOT/logs/nightly_perf_manual.xlsx`** locally, **copy it to `$REPO_ROOT/logs/nightly_perf_manual.prev.xlsx` before** scp/rsync/tar for the next run (baseline for report deltas). Then copy `nightly_jobs` and **`nightly_perf_manual.xlsx`** into **`$REPO_ROOT/logs/`** on your laptop: [references/nightly-local-log-fetch.md](references/nightly-local-log-fetch.md).
 
-1. **Login environment** - SSH, Slurm (`srun` attach or new allocation), Docker.  
-2. **Run cases** - `bash tools/nightly/run_nightly_jobs.sh` from **`$REPO_ROOT`**, logs under **`logs/nightly_perf_jobs`**.  
-3. **Analyze logs** - Map `LOG_DIR` to jobs and pytest output (see reference).  
-4. **Write report** - `scripts/nightly_local_log_report.py` emits Markdown (summary table + failure reasons).
+**Analyze and write the HTML test report** in **[vllm-omni-test-report](../vllm-omni-test-report/SKILL.md)** (**report kind nightly**): `export REPO_ROOT=/path/to/local/vllm-omni` then `python scripts/nightly_local_log_report.py --html-report ...` (defaults to **`$REPO_ROOT/logs/nightly_jobs`**; pass **`--log-dir`** only if you used a different tree).
 
 ## Required user inputs
 
-Ask before **Step 1** if missing:
-
 | Input | Meaning |
 |-------|---------|
-| **SSH connection name** | SSH `Host` alias or `user@host` for `ssh`. |
-| **Slurm username** | Account for `squeue -u ...` when resolving **JOBID**. |
-| **Docker container name** | Target for `docker exec -it ... bash`. |
+| **SSH connection name** | `Host` alias or `user@host`. |
+| **Slurm username** | For `squeue -u ...`. |
+| **Docker container name** | For `docker exec`. |
+| **Empty GPU count** | Optional but recommended before **`run_nightly_jobs.sh`**: how many **free** GPUs to use (**`X`**). The agent runs **`nvidia-smi`**, picks **`X`** indices with **no** (or minimal) load, and **`export CUDA_VISIBLE_DEVICES=…`** in the **same** shell / **`docker exec bash -lc`** as the script. See **§2** and the section **`CUDA_VISIBLE_DEVICES` — empty GPUs** in [references/nightly-local-environment.md](references/nightly-local-environment.md). |
 
-Optional: **`REPO_ROOT`** path inside the container; **`--log-dir`** if logs are not under the default tree.
+Optional: **`REPO_ROOT`** inside the container.
 
 ---
 
@@ -36,100 +34,122 @@ Optional: **`REPO_ROOT`** path inside the container; **`--log-dir`** if logs are
 ssh -v "<SSH_CONNECTION_NAME>"
 ```
 
-Load site modules if needed (e.g. `module load slurm`) before `srun`.
+Load **`module load slurm`** (or site equivalent) before **`srun`** if needed.
 
-### 1.2 Find JOBID (optional attach)
+### 1.2 Find JOBID
 
 ```bash
 SLURM_USER="<username>"
 squeue -u "$SLURM_USER" -t RUNNING -h -o "%i"
 ```
 
-- Use **RUNNING** jobs for `--overlap`. If several IDs appear, **confirm** which **JOBID** with the user.
-- If a suitable **JOBID** exists:
+Confirm **JOBID** when multiple rows exist.
+
+### 1.3 Run in container (no TTY)
 
 ```bash
 JOBID="<chosen_jobid>"
-srun --jobid="$JOBID" --overlap --pty bash
+srun --jobid="$JOBID" --overlap docker exec "<CONTAINER_NAME>" bash -lc '<commands>'
 ```
 
-### 1.3 New allocation (no attach)
+Nightly one-liner:
 
-If **no** suitable running job (or user declines attach):
+```bash
+srun --jobid="$JOBID" --overlap docker exec "<CONTAINER_NAME>" bash -lc 'source /rebase/.venv/bin/activate && export REPO_ROOT=/path/to/vllm-omni && cd "$REPO_ROOT" && bash tools/nightly/run_nightly_jobs.sh'
+```
+
+### 1.4 New allocation if no JOBID
 
 ```bash
 srun -p q-fq9hpsac -w hk01dgx006 --gres=gpu:0 --mem-per-cpu=8G --pty  --job-name=ci_local_test
 ```
 
-### 1.4 Enter container
+Then `docker exec "<CONTAINER_NAME>" bash -lc '<commands>'`.
+
+### 1.5 Optional: `docker exec -it` for debugging only
+
+### 1.6 Agent: BatchMode SSH
 
 ```bash
-docker exec -it "<CONTAINER_NAME>" bash
+ssh -o BatchMode=yes -o ConnectTimeout=30 "<SSH_CONNECTION_NAME>" \
+  "bash -lc 'type module >/dev/null 2>&1 && module load slurm 2>/dev/null; squeue -u \"<SLURM_USER>\" -t RUNNING -h -o \"%i\"'"
+
+ssh -o BatchMode=yes -o ConnectTimeout=120 "<SSH_CONNECTION_NAME>" \
+  "bash -lc 'type module >/dev/null 2>&1 && module load slurm 2>/dev/null; srun --jobid=\"<JOBID>\" --overlap docker exec \"<CONTAINER_NAME>\" bash -lc \"<INNER_CMD>\"'"
 ```
 
-More context: [references/nightly-local-environment.md](references/nightly-local-environment.md).
+Details: [references/nightly-local-environment.md](references/nightly-local-environment.md).
 
 ---
 
 ## 2. Run test cases
 
-Inside the container, from the **vLLM-Omni** repo root:
+**Before** `bash tools/nightly/run_nightly_jobs.sh` (inside the same **`docker exec … bash -lc '…'`** or interactive shell on the node):
+
+0. **Python venv** (required inside the container) — run first in that inner shell:
+
+   ```bash
+   source /rebase/.venv/bin/activate
+   ```
+
+   Details: [references/nightly-local-environment.md](references/nightly-local-environment.md) (**Python venv inside the container**).
+
+1. **Model / HF / vLLM environment** (required unless the user gives a different site policy) — same shell as the script:
+
+   ```bash
+   export HF_HOME="/home/models/"
+   unset HF_HUB_CACHE
+   unset TRANSFORMERS_CACHE
+   export VLLM_ALLOW_LONG_MAX_MODEL_LEN="1"
+   ```
+
+   Details: [references/nightly-local-environment.md](references/nightly-local-environment.md) (**Hugging Face cache and vLLM**).
+
+2. Ask the user for **`X`** = number of **empty / free** GPUs to use (or use a value they already gave in **Required user inputs**).
+3. Run **`nvidia-smi`**, select **`X`** GPU indices that are **idle** (typically **0 MiB** used and **0%** util — site-specific thresholds in the reference), then set:
+   ```bash
+   export CUDA_VISIBLE_DEVICES='<comma-separated GPU indices>'
+   ```
+4. **In that same environment**, `cd` to **`$REPO_ROOT`** and run **`bash tools/nightly/run_nightly_jobs.sh`** (or your local test entrypoint).
+
+Copy-paste patterns and fallback when fewer than **`X`** GPUs are strictly empty: [references/nightly-local-environment.md](references/nightly-local-environment.md) (**`CUDA_VISIBLE_DEVICES` — empty GPUs**).
+
+Example inner command (replace placeholders; **`X`** and device list come from **`nvidia-smi`** selection):
 
 ```bash
-export REPO_ROOT=/path/to/vllm-omni   # or cd there
-bash tools/nightly/run_nightly_jobs.sh
+srun --jobid="$JOBID" --overlap docker exec "$CONTAINER_NAME" bash -lc '
+  source /rebase/.venv/bin/activate
+  export REPO_ROOT=/path/to/vllm-omni
+  export HF_HOME="/home/models/"
+  unset HF_HUB_CACHE
+  unset TRANSFORMERS_CACHE
+  export VLLM_ALLOW_LONG_MAX_MODEL_LEN="1"
+  export CUDA_VISIBLE_DEVICES="0,1"
+  cd "$REPO_ROOT" && bash tools/nightly/run_nightly_jobs.sh
+'
 ```
 
-Default log directory:
+(`CUDA_VISIBLE_DEVICES` shown as `"0,1"` only for illustration — **derive from `nvidia-smi`, do not hardcode** unless the user insists. **`HF_HOME`** must match the cluster mount for shared models; if the user specifies another path, use that instead.)
 
-```bash
-LOG_DIR="$REPO_ROOT/logs/nightly_perf_jobs"
-```
+### 2.1 Background / resilient shell (recommended when tests run for a long time)
 
-Confirm new or updated files under **`LOG_DIR`** when the script finishes.
+- **Preferred:** open **`tmux new -s nightly`** (or **`screen`**) *before* **`srun` / `docker exec`**, run the full **`§2`** command inside that session, then **detach** (`Ctrl-b` `d` in tmux). Re-attach later with **`tmux attach -t nightly`** to watch progress.
+- **Alternative:** inside **`docker exec … bash -lc '…'`**, start the nightly script with **`nohup`** and append logs to a file under **`$REPO_ROOT/logs/`** (see copy-paste in [references/nightly-local-environment.md](references/nightly-local-environment.md)).
 
----
+## 3. Sync logs off-cluster
 
-## 3. Analyze logs
-
-- How paths map to **jobs** and pytest expectations: [references/nightly-local-log-layout.md](references/nightly-local-log-layout.md).
-- List **`LOG_DIR`**; if layout differs from the reference, use **`--log-dir`** when generating the report or reorganize files.
-
----
-
-## 4. Produce Markdown report
-
-**On a machine that can read `LOG_DIR`** (often: copy logs out, or run inside the same container/filesystem):
-
-```bash
-export REPO_ROOT=/path/to/vllm-omni
-python scripts/nightly_local_log_report.py --markdown-report /tmp/nightly-report.md
-# or stdout:
-python scripts/nightly_local_log_report.py
-```
-
-Options: `--log-dir`, `--repo-root`, `--title`. See `python scripts/nightly_local_log_report.py --help`.
-
-### Report contents
-
-| Section | Content |
-|--------|---------|
-| **Meta** | Timestamp (UTC), `$REPO_ROOT`, `LOG_DIR`, git commit if available |
-| **Summary** | One row per **job**: totals, passed, failed, skipped, errors, pytest summary line |
-| **Failures** | Per node: **reason** (`FAILED`/`ERROR` line after ` - `, or following `E   ...`) |
+Follow **[references/nightly-local-log-fetch.md](references/nightly-local-log-fetch.md)** (scp / rsync / tarball). Include **`logs/nightly_perf_manual.xlsx`** when it exists on the server.
 
 ---
 
 ## Agent workflow
 
-1. Collect **SSH connection name**, **Slurm username**, **Docker container name**; do not guess **JOBID** when multiple allocations exist.
-2. Walk **Section 1** (SSH -> squeue -> 1.2 or 1.3 -> docker exec).
-3. In the container: **Section 2** - ensure **`REPO_ROOT`**, run **`run_nightly_jobs.sh`**, verify **`LOG_DIR`**.
-4. **Section 3** - align disk layout with [references/nightly-local-log-layout.md](references/nightly-local-log-layout.md).
-5. **Section 4** - run **`nightly_local_log_report.py`**; add human context (hardware, branch, env) to the Markdown if needed.
-6. If logs are not pytest-shaped, say so and paste trailing log lines for triage.
+1. Collect SSH name, Slurm user, container name, and **optional `X` empty GPUs** for **`CUDA_VISIBLE_DEVICES`**; do not guess **JOBID** when ambiguous.
+2. Run sections **1–2**; **inside the container**, run **`source /rebase/.venv/bin/activate`** first; **before** the nightly/local test script, set **HF / vLLM** env vars (**§2 step 1**). Then, if **`X`** is set (or the user asks for GPU selection), run **`nvidia-smi`**, **`export CUDA_VISIBLE_DEVICES`**, and run the script in the **same** environment. For multi-hour jobs, use **`§2.1`** (**tmux** / **`nohup`**) so a dropped SSH session does not kill the run.
+3. Verify files under `logs/nightly_jobs` (and `logs/nightly_perf_manual.xlsx` when your workflow produces it).
+4. For **fetch**, use [references/nightly-local-log-fetch.md](references/nightly-local-log-fetch.md). For **HTML report**, point to **vllm-omni-test-report** `nightly_local_log_report.py` and layout [../vllm-omni-test-report/references/nightly-local-log-layout.md](../vllm-omni-test-report/references/nightly-local-log-layout.md).
 
 ## References
 
-- Cluster, Slurm overlap, Docker, `REPO_ROOT`: [references/nightly-local-environment.md](references/nightly-local-environment.md)
-- Log tree and pytest parsing rules: [references/nightly-local-log-layout.md](references/nightly-local-log-layout.md)
+- Fetch logs (scp / rsync / tar): [references/nightly-local-log-fetch.md](references/nightly-local-log-fetch.md)
+- Environment notes: [references/nightly-local-environment.md](references/nightly-local-environment.md)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Refresh **## Test content (job scope)** (from Buildkite build JSON + reference lookup) and/or
-**## Local testing** (from references/local-test-matrix.md) inside an existing report.
+**## Test Result** (Common stack + H200/H800/A100 placeholders + preserved **H100** CI block) inside an existing report.
 
 Uses the **Build** number already in the report (``| **Build** | [N](...) |``) unless ``--build``
 is passed. Requires ``BUILDKITE_TOKEN`` or ``BUILDKITE_API_TOKEN`` when patching job scope.
@@ -11,6 +11,8 @@ Example (from skill directory)::
   python scripts/patch_report_scope_local.py --report vllm-omni-test-report-2026-05-07.md
   python scripts/patch_report_scope_local.py --report report.md --no-local
   python scripts/patch_report_scope_local.py --report report.md --build 9063 --no-job-scope
+
+New reports use ``## Test Result`` … ``### H100（CI — Buildkite scheduled nightly）`` … ``## Issue tracking``.
 """
 
 from __future__ import annotations
@@ -29,6 +31,21 @@ import compose_full_report as cfr
 
 BUILD_RE = re.compile(r"\| \*\*Build\*\* \| \[(\d+)\]")
 JOB_SCOPE_DS_RE = re.compile(r"^- Job scope:.*$", re.MULTILINE)
+H100_HEADING = "### H100（CI — Buildkite scheduled nightly）"
+
+
+def _extract_h100_ci_block(raw: str) -> str | None:
+    start = raw.find(H100_HEADING)
+    if start == -1:
+        return None
+    body0 = raw.find("\n", start)
+    if body0 == -1:
+        return None
+    body_start = body0 + 1
+    end = raw.find("\n## Issue tracking", body_start)
+    if end == -1:
+        return None
+    return raw[body_start:end].strip()
 
 
 def _read_report(path: Path) -> str:
@@ -72,28 +89,35 @@ def patch_report(
         bn = build_no or 0
         new_scope = None
 
-    if do_local:
-        new_local = cfr.local_testing_markdown(skill_dir)
-    else:
-        new_local = None
-
     if new_scope is not None:
         start = raw.find("## Test content (job scope)")
         if start == -1:
             sys.exit("No '## Test content (job scope)' heading.")
-        end = raw.find("\n## Local testing", start)
+        end = raw.find("\n## Test Result", start)
         if end == -1:
-            sys.exit("No following '## Local testing'.")
+            sys.exit("No following '## Test Result'.")
         raw = raw[:start] + new_scope.rstrip() + "\n\n" + raw[end + 1 :]
 
-    if new_local is not None:
-        start = raw.find("## Local testing")
+    if do_local:
+        h100 = _extract_h100_ci_block(raw)
+        if not h100:
+            h100 = (
+                "*（未能从报告中解析 H100（CI）块；请运行完整 `compose_full_report.py` 重新生成。）*\n"
+            )
+        new_tr = cfr.render_test_result_section(
+            skill_dir,
+            log_h200=None,
+            log_h800=None,
+            log_a100=None,
+            h100_ci_markdown=h100,
+        )
+        start = raw.find("## Test Result")
         if start == -1:
-            sys.exit("No '## Local testing' heading.")
-        end = raw.find("\n## CI testing (Buildkite", start)
+            sys.exit("No '## Test Result' heading.")
+        end = raw.find("\n## Issue tracking", start)
         if end == -1:
-            sys.exit("No following '## CI testing (Buildkite'.")
-        raw = raw[:start] + new_local.rstrip() + "\n\n" + raw[end + 1 :]
+            sys.exit("No following '## Issue tracking'.")
+        raw = raw[:start] + new_tr.rstrip() + "\n\n" + raw[end + 1 :]
 
     if do_job_scope and bn:
         repl = (
@@ -120,7 +144,7 @@ def main() -> None:
     ap.add_argument(
         "--no-local",
         action="store_true",
-        help="Skip Local testing.",
+        help="Skip Test Result refresh (Common stack + GPU stubs; keeps existing H100 block when possible).",
     )
     args = ap.parse_args()
     rp = args.report
