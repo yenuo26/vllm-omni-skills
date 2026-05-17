@@ -334,6 +334,7 @@ summary.job-fail-details-summary::before {
   font-weight: 800;
   color: var(--danger-strong);
   line-height: 1;
+  pointer-events: none;
 }
 details.job-fail-details[open] > summary.job-fail-details-summary::before {
   content: "▾";
@@ -847,6 +848,7 @@ summary.report-subcard-summary::before {
   font-weight: 800;
   color: var(--accent);
   line-height: 1;
+  pointer-events: none;
 }
 details.report-subcard[open] > summary.report-subcard-summary::before {
   content: "▾";
@@ -905,6 +907,7 @@ summary.local-summary-pillar-summary::before {
   font-weight: 800;
   color: var(--accent);
   line-height: 1;
+  pointer-events: none;
 }
 details.local-summary-pillar[open] > summary.local-summary-pillar-summary::before {
   content: "▾";
@@ -938,6 +941,7 @@ summary.local-summary-dim-summary::before {
   font-weight: 800;
   color: var(--accent);
   line-height: 1;
+  pointer-events: none;
 }
 details.local-summary-dim[open] > summary.local-summary-dim-summary::before {
   content: "▾";
@@ -976,30 +980,316 @@ RELEASE_MARKDOWN_DOC_CSS = """
   border-color: var(--accent);
   color: var(--accent);
 }
-.release-doc.panel {
+.release-doc {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.release-doc .release-section-card {
   margin-bottom: 0;
 }
-.release-doc.panel:hover {
-  box-shadow: var(--dashboard-shadow);
-  border-color: var(--dashboard-border);
-}
-.release-doc > .meta.generated-meta {
+.release-doc .release-section-h2 {
   margin: 0 0 1rem;
-  padding-bottom: 0.85rem;
-  border-bottom: 1px dashed color-mix(in srgb, var(--dashboard-border-strong) 55%, transparent);
-}
-.release-doc h2 {
-  margin: 1.35rem 0 0.75rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 2px solid
+    color-mix(
+      in srgb,
+      var(--section-accent, var(--dashboard-border)) 42%,
+      var(--dashboard-border)
+    );
   font-size: 1.12rem;
   font-weight: 800;
   color: var(--dashboard-text);
   letter-spacing: -0.02em;
-  border-bottom: 2px solid var(--dashboard-border);
-  padding-bottom: 0.55rem;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
 }
-.release-doc h2:first-of-type {
+.release-doc .release-section-h2-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.release-doc .release-section-h2-ico {
+  flex-shrink: 0;
+  width: 2.65rem;
+  height: 2.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: color-mix(
+    in srgb,
+    var(--section-ico-bg, var(--dashboard-badge-bg)) 100%,
+    transparent
+  );
+  color: var(--section-accent, var(--accent));
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--section-accent, var(--border)) 25%,
+      var(--dashboard-border)
+    );
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+.release-doc .release-section-h2-label {
+  min-width: 0;
+  line-height: 1.28;
+}
+.release-doc .release-section-card--intro {
+  border-top: 3px dashed
+    color-mix(in srgb, var(--dashboard-muted) 52%, var(--dashboard-border));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--dashboard-badge-bg) 72%, var(--dashboard-panel-bg)) 0%,
+    var(--dashboard-panel-bg) 48%
+  );
+}
+.release-doc .release-section-card--conclusion {
+  --section-accent: var(--ok);
+  --section-ico-bg: var(--ok-bg);
+  border-top: 4px solid var(--section-accent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--section-ico-bg) 48%, var(--dashboard-panel-bg)) 0%,
+    var(--dashboard-panel-bg) 46%
+  );
+}
+.release-doc .release-section-card--metrics {
+  --section-accent: var(--ci);
+  --section-ico-bg: var(--ci-soft);
+  border-top: 4px solid var(--section-accent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--ci-soft) 34%, var(--dashboard-panel-bg)) 0%,
+    var(--dashboard-panel-bg) 46%
+  );
+}
+.release-doc .release-section-card--tests {
+  --section-accent: var(--dashboard-violet);
+  --section-ico-bg: var(--dashboard-violet-bg);
+  border-top: 4px solid var(--section-accent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--dashboard-violet-bg) 42%, var(--dashboard-panel-bg)) 0%,
+    var(--dashboard-panel-bg) 46%
+  );
+}
+.release-doc .release-section-card--tracking {
+  --section-accent: var(--dashboard-warning);
+  --section-ico-bg: var(--dashboard-warning-bg);
+  border-top: 4px solid var(--section-accent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--dashboard-warning-bg) 52%, var(--dashboard-panel-bg)) 0%,
+    var(--dashboard-panel-bg) 46%
+  );
+}
+.release-doc .release-section-card--open-issues {
+  --section-accent: color-mix(in srgb, var(--danger) 82%, #991b1b);
+  --section-ico-bg: var(--danger-bg);
+  border-top: 4px solid var(--section-accent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--danger-bg) 52%, var(--dashboard-panel-bg)) 0%,
+    var(--dashboard-panel-bg) 46%
+  );
+}
+.release-doc .release-section-card--data {
+  --section-accent: #64748b;
+  --section-ico-bg: rgba(148, 163, 184, 0.18);
+  border-top: 4px solid var(--section-accent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--section-ico-bg) 75%, var(--dashboard-panel-bg)) 0%,
+    var(--dashboard-panel-bg) 46%
+  );
+}
+.release-doc .release-section-card--default {
+  --section-accent: var(--accent);
+  --section-ico-bg: var(--accent-tint);
+  border-top: 4px solid var(--section-accent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent-tint) 88%, var(--dashboard-panel-bg)) 0%,
+    var(--dashboard-panel-bg) 46%
+  );
+}
+/* H2 大章（测试结论 / Metrics / Test Result / …）：整块可折叠 */
+.release-doc details.panel.release-section-card.release-section-details {
+  padding: 0;
+  overflow: hidden;
+}
+.release-doc summary.release-section-fold-summary {
+  list-style: none;
+  cursor: pointer;
+  margin: 0;
+  padding: 0.95rem 1.2rem 0.95rem 3rem;
+  position: relative;
+}
+.release-doc summary.release-section-fold-summary::-webkit-details-marker {
+  display: none;
+}
+.release-doc summary.release-section-fold-summary::before {
+  content: "▸";
+  position: absolute;
+  left: 0.82rem;
+  top: 1.05rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--section-accent, var(--accent));
+  line-height: 1;
+  pointer-events: none;
+}
+.release-doc details.release-section-details[open] > summary.release-section-fold-summary::before {
+  content: "▾";
+}
+.release-doc details.release-section-details[open] > summary.release-section-fold-summary {
+  border-bottom: 1px solid var(--dashboard-border);
+}
+.release-doc details.release-section-details > summary.release-section-fold-summary .release-section-h2 {
+  margin: 0 0 0.35rem;
+  padding-bottom: 0.5rem;
+}
+.release-doc .release-section-fold-body {
+  padding: 1rem 1.3rem 1.25rem;
+}
+.release-doc .release-section-fold-body > *:first-child,
+.release-doc .release-section-fold-body > details:first-child {
   margin-top: 0;
+}
+.release-doc .release-gpu-summary-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+.release-doc .release-gpu-summary-ico {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: var(--release-gpu-ico, var(--accent));
+}
+.release-doc .release-h4-fold {
+  border-left: 3px solid
+    color-mix(in srgb, var(--accent) 50%, var(--dashboard-border));
+}
+.release-doc .release-h4-fold > summary.report-subcard-summary {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent-soft) 22%, var(--dashboard-panel-strong)) 0%,
+    var(--dashboard-panel-bg) 100%
+  );
+}
+.release-doc .release-h5-fold {
+  border-left: 3px solid
+    color-mix(in srgb, var(--dashboard-violet) 55%, var(--dashboard-border));
+  background: color-mix(
+    in srgb,
+    var(--dashboard-violet-bg) 14%,
+    var(--dashboard-panel-bg)
+  );
+}
+.release-doc .release-h5-fold > summary.report-subcard-summary {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--dashboard-violet-bg) 55%, var(--dashboard-panel-strong)) 0%,
+    var(--dashboard-panel-bg) 100%
+  );
+}
+.release-doc .release-h5-fold > summary.report-subcard-summary::before {
+  color: var(--dashboard-violet);
+}
+/* GPU rows: ``details.panel`` inherited global ``.panel`` padding — inset summary looked flat. Reset + accent edge. */
+.release-doc details.panel.test-result-gpu-card.release-gpu-details {
+  padding: 0;
+  overflow: hidden;
+  margin: 0 0 0.95rem;
+  background: var(--dashboard-panel-bg);
+  border-radius: var(--radius);
+  border: 1px solid
+    color-mix(in srgb, var(--release-gpu-ico, var(--accent)) 28%, var(--dashboard-border));
+  border-left: 4px solid var(--release-gpu-ico, var(--accent));
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.09);
+  --release-gpu-ico: var(--accent);
+}
+.release-doc details.panel.test-result-gpu-card.release-gpu-details.release-gpu-details--h200 {
+  --release-gpu-ico: #7c3aed;
+}
+.release-doc details.panel.test-result-gpu-card.release-gpu-details.release-gpu-details--h800 {
+  --release-gpu-ico: #2563eb;
+}
+.release-doc details.panel.test-result-gpu-card.release-gpu-details.release-gpu-details--a100 {
+  --release-gpu-ico: #059669;
+}
+.release-doc details.panel.test-result-gpu-card.release-gpu-details.release-gpu-details--h100 {
+  --release-gpu-ico: var(--ci);
+}
+.release-doc details.panel.test-result-gpu-card.release-gpu-details:last-child {
+  margin-bottom: 0;
+}
+.release-doc details.panel.test-result-gpu-card.release-gpu-details:hover {
+  border-color: color-mix(in srgb, var(--release-gpu-ico, var(--accent)) 45%, var(--dashboard-border));
+  border-left-color: var(--release-gpu-ico, var(--accent));
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.12);
+}
+.release-doc details.release-gpu-details[open] > summary.release-gpu-details-summary {
+  border-bottom: 1px solid var(--dashboard-border);
+}
+.release-doc summary.release-gpu-details-summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 0.92rem 1.05rem 0.92rem 3.15rem;
+  position: relative;
+  font-weight: 800;
+  font-size: 1.08rem;
+  color: var(--dashboard-text);
+  letter-spacing: -0.02em;
+  background: linear-gradient(
+    105deg,
+    color-mix(in srgb, var(--release-gpu-ico, var(--accent)) 14%, var(--dashboard-panel-strong)) 0%,
+    var(--dashboard-panel-bg) 62%
+  );
+  margin: 0;
+}
+.release-doc summary.release-gpu-details-summary::-webkit-details-marker {
+  display: none;
+}
+.release-doc summary.release-gpu-details-summary::before {
+  content: "▸";
+  position: absolute;
+  left: 0.88rem;
+  top: 0.98rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--release-gpu-ico, var(--accent));
+  line-height: 1;
+  pointer-events: none;
+}
+.release-doc details.release-gpu-details[open] > summary.release-gpu-details-summary::before {
+  content: "▾";
+}
+.release-doc .release-gpu-details-body {
+  padding: 1rem 1.2rem 1.2rem;
+  background: color-mix(in srgb, var(--dashboard-badge-bg) 32%, var(--dashboard-panel-bg));
+}
+.release-doc .release-gpu-details-body > .release-h4-fold:first-child,
+.release-doc .release-gpu-details-body > p:first-child {
+  margin-top: 0;
+}
+.release-doc .release-h5-fold .report-subcard-body {
+  font-size: 0.98rem;
+}
+/* Clicks must reach <summary>; decorative SVGs must not steal the toggle. */
+.release-doc details > summary svg,
+.release-doc details > summary .ico {
+  pointer-events: none;
+}
+.release-doc > .meta.generated-meta {
+  margin: 0;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px dashed color-mix(in srgb, var(--dashboard-border-strong) 55%, transparent);
+  flex-shrink: 0;
 }
 .release-doc h3 {
   margin: 1.15rem 0 0.55rem;
