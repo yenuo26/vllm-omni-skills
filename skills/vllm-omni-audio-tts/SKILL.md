@@ -134,8 +134,35 @@ Default stage config uses async_chunk streaming (`qwen3_tts.yaml`). Key knobs:
 | `async_chunk` | Enable inter-stage streaming | `true` |
 | `runtime.max_batch_size` | Max requests batched per stage | `1` |
 | `enforce_eager` | Disable CUDA Graph (Stage 0: false, Stage 1: true) | varies |
-| `codec_chunk_frames` | AR frames per async chunk | `25` |
+| `codec_chunk_frames` | AR frames per async chunk (inter-stage streaming only) | `25` |
 | `codec_left_context_frames` | Sliding context window for smooth boundaries | `25` |
+| `initial_codec_chunk_frames` | Frames for first emitted codec chunk only (lowers TTFA) | `0` |
+| `decode_chunk_frames` | Code2Wav internal decode chunk size (independent of codec streaming) | `300` |
+| `decode_left_context_frames` | Code2Wav internal left context for decode | `25` |
+
+Connector streaming chunking (`codec_chunk_frames` / `codec_left_context_frames`) is **decoupled** from Code2Wav internal decode chunking (`decode_chunk_frames` / `decode_left_context_frames`). The connector controls inter-stage streaming windows only, while Code2Wav keeps its own independent decode parameters. Use `initial_codec_chunk_frames` to emit a small first chunk for low TTFA, then subsequent chunks return to the normal `codec_chunk_frames` window.
+
+The uniproc Code2Wav stage default `max_num_seqs` is now `10` (was `1`). Avoid reducing below 10 for latency-sensitive deployments.
+
+CUDA Graph warmup for Qwen3-TTS now accounts for custom `decode_chunk_frames` / `decode_left_context_frames` overrides.
+
+### High-Concurrency Profile
+
+For high-concurrency TTS serving (voice cloning, c=64+), use `qwen3_tts_high_concurrency.yaml`:
+
+```bash
+vllm serve Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --omni \
+  --stage-configs-path vllm_omni/deploy/qwen3_tts_high_concurrency.yaml
+```
+
+This profile enables batched CUDA graph decoder, prefix CUDA graphs for the code predictor, bounded reference-code context, and first-chunk fast emit (`initial_codec_chunk_frames: 1`). Tuned for 2-GPU serving with Seed-TTS voice-clone workload. Median TTFP is higher than default profile; use for throughput/E2E rather than first-packet-latency optimization.
+
+Additional high-concurrency knobs available in the deploy config:
+- `decode_cudagraph_batch_sizes`: Multi-batch-size CUDA graph capture for Code2Wav
+- `decode_batch_bucket_frames` / `decode_batch_max_size`: Variable-length chunk batching
+- `ref_code_context_frames`: Limits reference-audio code frames per chunk for stable stage-1 shapes
+- `decode_enable_tf32: true`: Opt-in TF32 for Code2Wav
+- `code_predictor_prefix_graphs: true`: Prefix CUDA graph warmup for Stage0 code predictor
 
 For batch mode (no streaming), use `qwen3_tts_batch.yaml`.
 
@@ -157,7 +184,7 @@ response = client.chat.completions.create(
 
 ## Adding a New TTS Model
 
-For a step-by-step guide on integrating a new TTS model into vLLM-Omni, see the [TTS model developer guide](https://github.com/vllm-project/vllm-omni/blob/main/docs/contributing/model/adding_tts_model.md).
+For a step-by-step guide on integrating a new TTS model into vLLM-Omni, see the [TTS model developer guide](https://github.com/vllm-project/vllm-omni/blob/main/docs/contributing/model/adding_tts_model.md). Offline examples are consolidated under `examples/offline_inference/text_to_speech/<model>/end2end.py`, and online serving examples under `examples/online_serving/text_to_speech/<model>/`.
 
 ## Troubleshooting
 

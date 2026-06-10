@@ -87,6 +87,22 @@ SUPPORTED_MODELS = {
 }
 ```
 
+For out-of-tree plugins, use the public API instead:
+
+```python
+from vllm_omni.diffusion.registry import register_diffusion_model
+
+register_diffusion_model(
+    model_arch="MyNewModel",
+    module_name="my_plugin.models.my_new_model",
+    class_name="MyNewModelPipeline",
+    pre_process_func_name="pre_process",  # optional
+    post_process_func_name="post_process",  # optional
+)
+```
+
+This registers custom diffusion pipelines without modifying core source. For out-of-tree plugins, `module_name` should be the full import path of the module containing the pipeline class.
+
 ### Step 4: Add Stage Configuration
 
 Create a default stage config YAML:
@@ -173,6 +189,10 @@ pytest tests/ --cov=vllm_omni --cov-report=html
 **Tests fail with GPU errors**: Some tests require a GPU. Run with `pytest -m "not gpu"` to skip GPU tests.
 
 **Pre-commit hook fails**: Run `pre-commit run --all-files` to see specific issues.
+
+**`OmniDiffusionConfig` field name collision with vLLM `attention_config`**: Fixed in #3489. Use `diffusion_attention_config` (not `attention_config`) in deploy YAML and code for diffusion pipelines. The old key is silently dropped.
+
+**RMSNorm inductor KeyError under HSDP + torch.compile**: Fixed in #3460. `fused_rms_norm` inductor tracing now avoids calling `.data` on DTensor objects.
 
 ## References
 
