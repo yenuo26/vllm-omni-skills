@@ -39,6 +39,7 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 from md_table import render_markdown_table
 from nightly_local_log_report import markdown_local_summary_from_log_dir
+from buildkite_build_stats import METRICS_ROW_READY_PER_PR_AVG
 from release_md_to_html import (
     convert_release_report_markdown,
     materialize_release_conclusion_in_markdown,
@@ -837,6 +838,51 @@ def render_job_scope_section(build: dict, build_no: int, skill_dir: Path) -> str
 PREVIEW_BUILD_NO = 12880
 
 
+def preview_metrics_overview_markdown(*, stats_from: str, stats_to: str) -> str:
+    """
+    Metrics block matching ``buildkite_build_stats.py --markdown`` layout (sample values only).
+    """
+    metrics_header = [
+        "CI category",
+        "Success rate/UT coverage",
+        "Avg duration",
+        "Other finished count",
+        "Bug avg first response",
+    ]
+    metrics_rows = [
+        ["ready", "48.2% (875/1815)", "1h11m25s (1815 builds)", "1294", "-"],
+        ["merge", "64.3% (270/420)", "47m58s (420 builds)", "0", "-"],
+        ["nightly", "27.9% (12/43)", "2h35m56s (43 builds)", "0", "-"],
+        ["weekly", "100.0% (3/3)", "2h44m52s (3 builds)", "0", "-"],
+        [
+            METRICS_ROW_READY_PER_PR_AVG,
+            "**67.9%** (avg over 381 PRs, 1161 CI runs: 609 passed / 552 failed)",
+            "-",
+            "-",
+            "-",
+        ],
+        ["ut", "**26%**", "439.09s", "-", "-"],
+        ["ut (exclude models)", "**46.8%**", "-", "-", "-"],
+        [
+            f"bugs (first response, {stats_from}..{stats_to})",
+            "-",
+            "-",
+            "-",
+            "**10h9m57s** (avg, n=136/166 issues)",
+        ],
+    ]
+    return (
+        "## Metrics overview\n\n"
+        f"Source: `scripts/buildkite_build_stats.py`; "
+        f"window (Buildkite `created_at`, UTC): `{stats_from}` - `{stats_to}`. "
+        f"Row **{METRICS_ROW_READY_PER_PR_AVG}** = mean per-PR success rate over **ready** (non-`main`) builds, "
+        f"grouped by `pull_request.id` or branch (distinct from pooled **ready** row).\n\n"
+        "*本段为 **预览假数据**：表格结构与正式报告一致；未从 Buildkite / GitHub 拉取真实数值。*\n\n"
+        + render_markdown_table(metrics_header, metrics_rows)
+        + "\n"
+    )
+
+
 def preview_report_markdown(
     skill_dir: Path,
     *,
@@ -850,26 +896,7 @@ def preview_report_markdown(
     Embeds real ``references/local-test-matrix.md`` Common stack when present.
     """
     conclusion = render_test_conclusion_section()
-    ci_md = (
-        "## Metrics overview\n\n"
-        "*本段为 **预览假数据**：未运行 `buildkite_build_stats.py`，下列数值仅为版式演示。*\n\n"
-        + render_markdown_table(
-            ["指标（示例）", "数值"],
-            [
-                ["**Stats window**", f"`{stats_from}` … `{stats_to}`"],
-                ["**Pipeline**", f"`{ORG}/{PIPELINE}` · branch `{BRANCH}`"],
-                ["**Job success rate（窗口内）**", "97.4%"],
-                ["**UT 覆盖率（示例）**", "84.6%"],
-                ["**Bug 平均首次响应（h）**", "6.2"],
-                ["**本窗口新建 bug 数（示例）**", "5"],
-                ["**L4 / nightly 触达**", "✓ 示例：最近 7 次定时构建均完成"],
-                [
-                    "**说明**",
-                    "去掉 `--preview` 并配置 token 后将替换为 `buildkite_build_stats.py` 真实输出。",
-                ],
-            ],
-        )
-    )
+    ci_md = preview_metrics_overview_markdown(stats_from=stats_from, stats_to=stats_to)
 
     demo_link_a = (
         f"https://buildkite.com/{ORG}/{PIPELINE}/builds/{build_no}#step-demo-jid-a"
@@ -930,7 +957,7 @@ def preview_report_markdown(
     issue_tracking = (
         "## Issue tracking\n\n"
         "**Filter:** GitHub Search — `label:ci-failure`, `created` (UTC) "
-        f"**{stats_from}** … **{stats_to}**, title contains `local test`。\n\n"
+        f"**{stats_from}** … **{stats_to}**，title contains `local test`。\n\n"
         "*以下为 **预览假数据**（列与正式报告一致）。*\n\n"
         "*Matching issues: **2**.*\n\n"
         + render_markdown_table(
