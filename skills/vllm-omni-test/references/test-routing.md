@@ -2,16 +2,23 @@
 
 Use this reference to map testing goals to levels, markers, and runnable commands.
 
+**Upstream vllm-omni paths** (`.buildkite/`, `docs/contributing/…`): this skills repo does not vendor those files. Link them with `https://github.com/vllm-project/vllm-omni/blob/main/<path>` (clickable in GitHub and IDEs). When editing tests **inside a vllm-omni clone**, use repo-relative paths from that checkout.
+
 ## Model-centric e2e filename convention (L2–L4)
 
-When generating a **new** test module tied to a **specific model** under `tests/e2e/`:
+When generating a **new** test module tied to a **specific model** under `tests/e2e/offline_inference/` or `tests/e2e/online_serving/`:
 
-| Level | Pattern |
-|-------|---------|
-| **L2**, **L3** | `test_{lowercase_model_slug}.py` |
-| **L4** | `test_{lowercase_model_slug}_expansion.py` |
+| Level | Pattern | Example (`Qwen/Qwen2.5-Omni-7B`) |
+|-------|---------|----------------------------------|
+| **L2**, **L3** | `test_{lowercase_model_slug}.py` | `test_qwen2_5_omni.py` |
+| **L4** | `test_{lowercase_model_slug}_expansion.py` | `test_qwen2_5_omni_expansion.py` |
 
-Normalize the slug from the **repo segment only** (after `Org/`), lowercase, replace `.`, `-`, and spaces with `_`; **do not** prefix the org (avoid `qwen_qwen2_5_omni_7b`). Drop trailing size tokens like `7b` when one file per model line is enough — e.g. `Qwen/Qwen2.5-Omni-7B` → `test_qwen2_5_omni.py` / `test_qwen2_5_omni_expansion.py`. L1 modules elsewhere are not required to follow this.
+**Slug rules for `{lowercase_model_slug}`** (canonical: [SKILL.md](../SKILL.md) § *Naming: generated test module files*):
+
+1. Start from the HuggingFace-style id (e.g. `Qwen/Qwen2.5-Omni-7B`), but **do not** put the org into the filename: use the **repo segment only** (`Qwen2.5-Omni-7B`), not `Qwen_...` / `qwen_qwen2_5_...`.
+2. **Lowercase**; replace `.`, `-`, and whitespace with a single `_` (e.g. `Qwen2.5-Omni-7B` → `qwen2_5_omni`). **Omit** trailing size tokens such as `7b` / `30b` in the basename when a single file covers that model line in the directory (matches `test_qwen2_5_omni.py` in-tree).
+3. If two checkpoints in the same folder need separate modules, add a **minimal** disambiguator (e.g. `_7b` vs `_3b`) **only then**.
+4. **L1** unit tests are **not** bound to this pattern; use `tests/<area>/test_<feature>.py` as today.
 
 ## Model type markers (`omni` / `tts` / `diffusion`)
 
@@ -62,6 +69,7 @@ E2E (L2+) should not rely on mocks unless documenting a rare exception; prefer r
 | Basic integration/e2e | L2 | `core_model` + **one of** `omni` / `tts` / `diffusion` | `tests/e2e/...` |
 | Advanced integration | L3 | `advanced_model` + type marker | `tests/e2e/...` |
 | Full function / nightly | L4 | `full_model` (nightly) + type marker | **Function:** `tests/e2e/*_expansion.py`; **Perf:** `tests/dfx/perf/tests/*.json`; **Accuracy:** `tests/e2e/accuracy/` |
+| Invalid HTTP / param validation | Weekly (dfx) | `pytest.mark.slow` + type marker + `H100` or `L4` | `tests/dfx/reliability/invalid_param_test/test_invalid_*.py` |
 
 ## Marker Selection Rules
 
@@ -175,6 +183,40 @@ Nightly **L4** for a model is often **multiple jobs** in `test-nightly.yml`, not
 
 Do **not** put throughput/latency baselines inside `test_*_expansion.py` — that belongs in the dfx perf JSON + nightly Perf job.
 
+## Invalid parameter validation (weekly / dfx)
+
+When the user’s test plan includes **异常参数校验**, **invalid request bodies**, or **HTTP 4xx** validation against a live server:
+
+1. **Do not** author these in `tests/e2e/online_serving/test_*.py` or `*_expansion.py`. **Move** any drafted `test_*` into `tests/dfx/reliability/invalid_param_test/`.
+2. **Pick script by route** (extend in-tree file):
+
+| Route family | Script |
+|--------------|--------|
+| Omni chat / WS video·realtime | `test_invalid_omni_chat.py` |
+| `/v1/audio/speech` (+ stream / batch / voices) | `test_invalid_audio_speech.py` |
+| Audio diffusion | `test_invalid_audio_diffusion.py` |
+| `/v1/images/generations` | `test_invalid_image_generation.py` |
+| `/v1/images/edits` | `test_invalid_image_editing.py` |
+| `/v1/videos*` | `test_invalid_video_generation.py` |
+| Sleep / wakeup / server control | `test_invalid_server_control.py` |
+
+3. **Style:** `pytestmark = [pytest.mark.slow, pytest.mark.<type>]`; `_PARAMS` + `hardware_marks`; `send_*_http_request` with `err_code` + `err_message`; parametrized `body_spec` rows with `id=`; `_minimal_*_json()` helpers; `_SKIP_ISSUE_3649` when tracked in [#3649](https://github.com/vllm-project/vllm-omni/issues/3649).
+4. **CI:** [`.buildkite/test-weekly.yml`](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/test-weekly.yml) group **Reliability Test - Invalid parameters Test** — **not** ready/merge/nightly.
+
+```bash
+# Weekly H100 (diffusion / omni / video invalid-param)
+cd tests
+pytest -s -v dfx/reliability/invalid_param_test/ -m "slow and H100"
+
+# Weekly L4 (e.g. Qwen3-TTS speech invalid-param)
+pytest -s -v dfx/reliability/invalid_param_test/ -m "slow and L4"
+
+# Single script / case
+pytest -s -v dfx/reliability/invalid_param_test/test_invalid_image_generation.py::test_images_generations_invalid_requests -m "slow and H100"
+```
+
+**Trigger:** `WEEKLY=1` or PR label `weekly-test`. Appending cases to existing scripts usually needs **no YAML edit** (directory sweep). No `source_file_dependencies` on weekly steps.
+
 ### Platform-targeted examples
 
 ```bash
@@ -201,6 +243,8 @@ Paths are relative to `tests/` after `cd tests`.
 | **Diffusion X2I** L4 perf (nightly) | `pytest -s -v dfx/perf/scripts/run_diffusion_benchmark.py --test-config-file dfx/perf/tests/test_qwen_image_vllm_omni.json` |
 | **Diffusion X2I** L4 online expansion (Edit) | `pytest -s -v e2e/online_serving/test_qwen_image_edit_expansion.py -m "full_model and diffusion and H100" --run-level=full_model` |
 | **Diffusion X2V** L4 nightly | `pytest -s -v e2e/online_serving/test_wan22_expansion.py -m "full_model and cuda" --run-level=full_model` |
+| **Invalid param** weekly H100 | `pytest -s -v dfx/reliability/invalid_param_test/ -m "slow and H100"` |
+| **Invalid param** weekly L4 | `pytest -s -v dfx/reliability/invalid_param_test/ -m "slow and L4"` |
 
 ### Agent / author completion checklist
 
@@ -217,15 +261,17 @@ When adding or modifying tests, do not stop at “where the file lives” — al
 9. **Diffusion L4 Function**: wire `*_expansion.py` into **X2I(&A&T)** or **X2V** **Function Test** in **`test-nightly.yml` only** — do not add `test-merge.yml` unless the user also requested L3.
 10. **Diffusion L4 Perf** (only when requested): add `tests/dfx/perf/tests/test_<slug>_vllm_omni.json` + **Perf Test · &lt;Model&gt;** step (artifact upload); not part of “L4 功能用例” by default.
 11. **E2E Buildkite (L2/L3 only)**: `test-ready.yml` / `test-merge.yml` steps need **`source_file_dependencies`** + full **`agents` + `plugins`**. **L4 nightly** uses explicit file lists or perf scripts in `test-nightly.yml` (no merge job).
-12. **Prerequisites**: GPU tier, HF cache/token, and any module `skipif` / platform-only YAML.
+12. **Invalid param / 异常参数**: cases in **`tests/dfx/reliability/invalid_param_test/`** (route-matching script), `send_*_http_request` + `err_code`, `pytest.mark.slow` + `H100`/`L4`; CI = **`test-weekly.yml`** only — do not put in e2e or nightly.
+13. **Prerequisites**: GPU tier, HF cache/token, and any module `skipif` / platform-only YAML.
 
 ## Buildkite pipeline mapping
 
 | Level | Repo file | Model-type grouping |
 |-------|-----------|---------------------|
-| L1, L2 | `.buildkite/test-ready.yml` | Steps prefixed **Omni ·**, **TTS ·**, **Diffusion ·** under **E2E Test** — **`source_file_dependencies` required** |
-| L3 | `.buildkite/test-merge.yml` | Per-model E2E steps; `-m "advanced_model and …"` — **`source_file_dependencies` required** |
-| L4 | `.buildkite/test-nightly.yml` | **Omni / TTS / Diffusion X2I(&A&T) / X2V** — each group may have **Function**, **Accuracy**, **Perf**, **Doc** steps |
+| L1, L2 | [`.buildkite/test-ready.yml`](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/test-ready.yml) | Steps prefixed **Omni ·**, **TTS ·**, **Diffusion ·** under **E2E Test** — **`source_file_dependencies` required** |
+| L3 | [`.buildkite/test-merge.yml`](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/test-merge.yml) | Per-model E2E steps; `-m "advanced_model and …"` — **`source_file_dependencies` required** |
+| L4 | [`.buildkite/test-nightly.yml`](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/test-nightly.yml) | **Omni / TTS / Diffusion X2I(&A&T) / X2V** — each group may have **Function**, **Accuracy**, **Perf**, **Doc** steps |
+| Invalid param (weekly) | [`.buildkite/test-weekly.yml`](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/test-weekly.yml) | **Invalid parameters Test · H100** / **· L4** — sweeps `tests/dfx/reliability/invalid_param_test/` |
 
 ### `source_file_dependencies` (E2E Test only — ready & merge)
 
@@ -311,7 +357,7 @@ Common patterns in `test-ready.yml` / `test-merge.yml`:
 
 When extending an existing step (e.g. add `tests/e2e/offline_inference/test_qwen_image.py` to **Diffusion · Qwen Image Test**), update `source_file_dependencies` and `commands` only; **keep the existing `agents` + `plugins` block unchanged** unless the hardware tier changes.
 
-The root [`.buildkite/pipeline.yml`](../../../.buildkite/pipeline.yml) decides **which** child file is uploaded. To run **L3** on a feature branch, comment out `if: build.branch == "main"` on the merge upload step. To run **L4** without `NIGHTLY=1`, comment out the nightly upload step’s `if: build.env("NIGHTLY") == "1"` and the same `if` on relevant steps inside `test-nightly.yml`. Revert such edits before merging.
+The root [`.buildkite/pipeline.yml`](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/pipeline.yml) decides **which** child file is uploaded. To run **L3** on a feature branch, comment out `if: build.branch == "main"` on the merge upload step. To run **L4** without `NIGHTLY=1`, comment out the nightly upload step’s `if: build.env("NIGHTLY") == "1"` and the same `if` on relevant steps inside `test-nightly.yml`. Revert such edits before merging.
 
 Platform-specific pipelines (e.g. AMD) follow the same level → file pairing under `.buildkite/`.
 

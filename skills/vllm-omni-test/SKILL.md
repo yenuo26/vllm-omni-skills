@@ -7,7 +7,9 @@ description: Generate and run tests for vllm-project/vllm-omni with CI-aligned l
 
 ## Purpose
 
-Use this skill to generate minimal, stable test cases and run them with the correct marker/level strategy for `vllm-project/vllm-omni`.
+Use this skill to generate minimal, stable test cases and run them with the correct marker/level strategy for [vllm-project/vllm-omni](https://github.com/vllm-project/vllm-omni).
+
+**Link convention:** Paths such as `.buildkite/` and `docs/contributing/` live in the **vllm-omni** repo, not in this skills collection. Markdown links to those files use `https://github.com/vllm-project/vllm-omni/blob/main/<path>`. In a local vllm-omni checkout, the same targets are at the repo root.
 
 Default priorities:
 
@@ -82,6 +84,8 @@ When adding **new** pytest modules whose primary scope is a **specific model** (
 3. If two checkpoints in the same folder need separate modules, add a **minimal** disambiguator (e.g. `_7b` vs `_3b`) only then.
 4. **L1** unit tests are **not** bound to this pattern; use `tests/<area>/test_<feature>.py` as today.
 
+Routing tables and commands: [references/test-routing.md](references/test-routing.md) § *Model-centric e2e filename convention*.
+
 Existing references: `tests/e2e/offline_inference/test_qwen2_5_omni.py` (L2-style omni), `tests/e2e/offline_inference/test_qwen3_5_9b.py` (L2-style omni, single-stage VL), `tests/e2e/online_serving/test_qwen3_omni_expansion.py` (L4-style omni), `tests/e2e/online_serving/test_qwen_image_edit_expansion.py` / `test_qwen_image_expansion.py` (L4-style diffusion).
 
 ### Step 4: Generate Test Case Skeleton
@@ -92,8 +96,11 @@ Existing references: `tests/e2e/offline_inference/test_qwen2_5_omni.py` (L2-styl
 |----------|------------------|---------------------------|---------------------------|
 | **Offline inference e2e** | `tests/e2e/offline_inference/` | **Module (default):** `omni_runner` + `omni_runner_handler`. **Function (isolation only):** `omni_runner_function` + `omni_runner_handler_function`. Diffusion/TTS may use `Omni(...).generate` directly | L2: `core_model` + **one of** `omni` / `tts` / `diffusion`; `@hardware_test(...)` when GPU/NPU is required |
 | **Online serving e2e** | `tests/e2e/online_serving/` | **Module (default):** `omni_server` + `openai_client`. **Function (isolation only):** `omni_server_function` + `openai_client_function`. Clients: `send_omni_request` (omni), `send_audio_speech_request` (tts), `send_diffusion_request` / `send_video_diffusion_request` / `send_images_generations_request` (diffusion) | L2: `core_model` smoke; L3/L4: `advanced_model` or `full_model` for expansion / nightly |
-| **Documentation / runnable examples** | `tests/examples/offline_inference/`, `tests/examples/online_serving/` | **Offline docs (preferred):** extract Python/Bash blocks from the doc README (e.g. `ReadmeSnippet.extract_readme_snippets`), `pytest.mark.parametrize` each snippet, run via `example_runner.run` with a stable `output_subfolder`. **Online docs:** copy client/request scripts into dedicated tests and keep them in sync with the doc page. | Usually **L4**: `advanced_model`, often `example` plus hardware marks matching the nightly docs-example job (see `.buildkite/test-nightly.yml`). Full conventions: [docs/contributing/ci/test_examples/doc_example_tests.inc.md](../../../docs/contributing/ci/test_examples/doc_example_tests.inc.md) (introduced in [PR #1910](https://github.com/vllm-project/vllm-omni/pull/1910): naming, output directory layout, skip rules, avoid trimming `num_inference_steps` without a strong CI reason). |
-| **Performance / benchmark** | `tests/perf/`, heavy `*_expansion.py` e2e | JSON or script-driven server + load config; assert explicit metrics / baselines | L3/L4: `advanced_model`, plus `benchmark` or other perf markers used in merge/nightly steps; wire commands to `test-merge.yml` / `test-nightly.yml` as appropriate |
+| **Documentation / runnable examples** | `tests/examples/offline_inference/`, `tests/examples/online_serving/` | **Offline docs (preferred):** extract Python/Bash blocks from the doc README (e.g. `ReadmeSnippet.extract_readme_snippets`), `pytest.mark.parametrize` each snippet, run via `example_runner.run` with a stable `output_subfolder`. **Online docs:** copy client/request scripts into dedicated tests and keep them in sync with the doc page. | Usually **L4**: `advanced_model`, often `example` plus hardware marks matching the nightly docs-example job (see `.buildkite/test-nightly.yml`). Full conventions: [docs/contributing/ci/test_examples/doc_example_tests.inc.md](https://github.com/vllm-project/vllm-omni/blob/main/docs/contributing/ci/test_examples/doc_example_tests.inc.md) (introduced in [PR #1910](https://github.com/vllm-project/vllm-omni/pull/1910): naming, output directory layout, skip rules, avoid trimming `num_inference_steps` without a strong CI reason). |
+| **Performance / benchmark** | `tests/dfx/perf/tests/*.json` + `run_*_benchmark.py` | JSON or script-driven server + load config; assert explicit metrics / baselines | L4 Perf: `full_model` + `benchmark`; wire `test-nightly.yml` Perf steps |
+| **Invalid parameter / negative HTTP validation** | `tests/dfx/reliability/invalid_param_test/` | Live `omni_server` + low-level `send_*_http_request` with `err_code` / `err_message` | `pytest.mark.slow` + `omni` / `tts` / `diffusion` + `@hardware_marks` (`H100` or `L4`); CI in **`test-weekly.yml`** (not ready/merge/nightly) |
+
+**If the user’s test plan includes 异常参数校验 / invalid params / negative HTTP / 400 validation:** do **not** add those `test_*` functions to `tests/e2e/online_serving/test_*.py` or `*_expansion.py`. **Move or author them** under `tests/dfx/reliability/invalid_param_test/` in the **endpoint-matching script** (see **Invalid parameter validation** below). Success-path e2e and invalid-param dfx tests must stay in separate modules.
 
 **1b. Model type — `omni` vs `tts` vs `diffusion`**
 
@@ -233,7 +240,7 @@ def test_text_to_video_001(omni_server, openai_client) -> None:
     openai_client.send_video_diffusion_request({"model": ..., "form_data": {...}})  # /v1/videos
 ```
 
-*Documentation example tests:* follow the **Preferred Test Strategy** in [doc_example_tests.inc.md](../../../docs/contributing/ci/test_examples/doc_example_tests.inc.md): dynamic extraction for offline READMEs; explicit copied client code for online pages until extraction is justified; use the documented **naming**, **output directory** (page folder + case id), and **skipping** rules (e.g. Gradio-only scripts).
+*Documentation example tests:* follow the **Preferred Test Strategy** in [doc_example_tests.inc.md](https://github.com/vllm-project/vllm-omni/blob/main/docs/contributing/ci/test_examples/doc_example_tests.inc.md): dynamic extraction for offline READMEs; explicit copied client code for online pages until extraction is justified; use the documented **naming**, **output directory** (page folder + case id), and **skipping** rules (e.g. Gradio-only scripts).
 
 *Performance tests:* add or extend entries under `tests/perf/` (and JSON configs where the project uses them), with **explicit baselines** and the same marker/run-level pairing as the CI step that will execute them.
 
@@ -368,6 +375,76 @@ Changing `request_config` fields (`size`, `n`, `seed`, server flags) is **not** 
 
 L1 tests under `tests/entrypoints/` may use **FastAPI `TestClient`** or direct handler calls with mocks; they do **not** need `OpenAIClientHandler`. L2+ serving e2e must use `runtime.py` send helpers.
 
+#### Invalid parameter validation (`tests/dfx/reliability/invalid_param_test/`)
+
+When the user asks for **异常参数校验**, **invalid request bodies**, **HTTP 4xx contract tests**, or any case that sends **malformed / out-of-range / mismatched** API payloads against a **live** server:
+
+1. **Do not** place these in `tests/e2e/online_serving/` or `*_expansion.py`. If already drafted there, **move** the `test_*` into the correct `invalid_param_test` script and delete the duplicate from e2e.
+2. **Pick the script by HTTP route** (extend an existing file; add a new `test_invalid_<area>.py` only when no in-tree script covers that route family):
+
+| API / area | Script |
+|------------|--------|
+| Omni chat completions, WebSocket video/realtime paths | `test_invalid_omni_chat.py` |
+| `POST /v1/audio/speech`, stream, batch, voices | `test_invalid_audio_speech.py` |
+| Audio diffusion endpoints | `test_invalid_audio_diffusion.py` |
+| `POST /v1/images/generations` | `test_invalid_image_generation.py` |
+| `POST /v1/images/edits` | `test_invalid_image_editing.py` |
+| `POST/GET/DELETE /v1/videos*` | `test_invalid_video_generation.py` |
+| Sleep / wakeup / server control | `test_invalid_server_control.py` |
+
+3. **Match in-tree style** in the chosen script:
+
+| Element | Convention |
+|---------|------------|
+| **Module markers** | `pytestmark = [pytest.mark.slow, pytest.mark.<omni or tts or diffusion>]` |
+| **Server fixture** | `_PARAMS` / `_QWEN3_TTS_SPEECH`-style list of `pytest.param(OmniServerParams(...), id="...", marks=hardware_marks(...))`; `@pytest.mark.parametrize("omni_server", _PARAMS, indirect=True)` |
+| **Hardware** | `hardware_marks(res={"cuda": "H100"})` for heavy diffusion/omni/video; `hardware_marks(res={"cuda": "L4"})` for smaller TTS models (must match weekly `-m "slow and L4"` step) |
+| **HTTP client** | **Low-level** `openai_client.send_*_http_request({..., "err_code": 400, "err_message": (...)} )` — **not** `send_*_request` (success path) |
+| **Case shape** | Prefer **one `test_*` per route family** + `@pytest.mark.parametrize("body_spec, err_message", [...])` with stable `id=` per case; or dedicated `test_<route>_malformed_json` when not parametrized |
+| **Body helpers** | `_minimal_<endpoint>_json(omni_server)` / `_minimal_*_form_data()`; merge overrides with `body.update(body_spec)` |
+| **Known gaps** | `pytest.mark.skip(reason="…#3649")` as `_SKIP_ISSUE_3649` when server validation is not yet strict (mirror neighboring cases) |
+| **Sections** | Route banner comments (`# ─── POST /v1/images/generations ───`) like existing files |
+| **Shared fixtures** | Reuse `tests/dfx/reliability/invalid_param_test/conftest.py` (`tiny_png_bytes`, env defaults) |
+
+4. **Adding a new model** to invalid-param coverage: append a `pytest.param(OmniServerParams(model="...", stage_config_path=..., server_args=...), ...)` entry to the script’s `_PARAMS` list — do **not** create `test_invalid_<model>.py` unless the route is new.
+
+5. **CI — `.buildkite/test-weekly.yml` only** (not `test-ready.yml` / `test-merge.yml` / `test-nightly.yml`):
+
+| Weekly step | Command | When your cases run |
+|-------------|---------|---------------------|
+| **Invalid parameters Test · H100** | `pytest -s -v tests/dfx/reliability/invalid_param_test/ -m "slow and H100"` | Diffusion / omni / video invalid-param tests with `H100` hardware mark |
+| **Invalid parameters Test · L4** | `pytest -s -v tests/dfx/reliability/invalid_param_test/ -m "slow and L4"` | TTS / lighter models marked `L4` |
+
+- **Trigger:** `build.env("WEEKLY") == "1"` or PR label `weekly-test`.
+- **Default:** extending an existing `invalid_param_test` script needs **no YAML edit** — the weekly steps already sweep the whole directory.
+- **Edit YAML only** when adding a **new hardware queue**, a **new top-level script** that must run in isolation, or a **model-specific weekly shard** (mirror neighboring reliability steps).
+- Weekly steps **do not** use `source_file_dependencies`.
+
+**Example — append to `test_invalid_image_generation.py`:**
+
+```python
+@pytest.mark.parametrize(
+    "body_spec, err_message",
+    [
+        pytest.param({"seed": -1}, ("seed", "greater_than_equal", "0"), id="seed_negative"),
+    ],
+)
+@pytest.mark.parametrize("omni_server", _PARAMS, indirect=True)
+def test_images_generations_invalid_requests(
+    omni_server: OmniServer,
+    openai_client: OpenAIClientHandler,
+    body_spec: dict[str, object],
+    err_message: str | tuple[str, ...],
+) -> None:
+    body = _minimal_images_gen_json(omni_server)
+    body.update(body_spec)
+    openai_client.send_images_generations_http_request(
+        {"json": body, "timeout": 300, "err_code": 400, "err_message": err_message}
+    )
+```
+
+See [references/test-routing.md](references/test-routing.md) **Invalid parameter / weekly CI**.
+
 #### Assertion helpers (`tests/helpers/assertions.py`)
 
 **Do not** add module-local helpers such as `_assert_images_generations_payload` or `_send_and_assert_*` in e2e test files. Response/media validation belongs in **`tests/helpers/assertions.py`**, grouped by **category**:
@@ -430,7 +507,7 @@ L1 tests under `tests/entrypoints/` may keep **minimal** asserts next to the han
 
 #### Omni Test Writing Guidance (L1-L4 Layering)
 
-When the goal is a general Omni/multimodal test case, prioritize mapping the test to the correct purpose, directory, and resource assumptions aligned with the layers (see [`CI_5levels.md`](https://raw.githubusercontent.com/vllm-project/vllm-omni/main/docs/contributing/ci/CI_5levels.md)):
+When the goal is a general Omni/multimodal test case, prioritize mapping the test to the correct purpose, directory, and resource assumptions aligned with the layers (see [CI_5levels.md](https://github.com/vllm-project/vllm-omni/blob/main/docs/contributing/ci/CI_5levels.md)):
 
 - **L1**: Unit/logic validation on CPU (`core_model and cpu`). Cover input validation, branches, and exception paths (`tests/<component>/test_*.py`). **Mock with `mocker` / `monkeypatch` only — not `unittest.mock`.**
 - **L2**: Basic e2e (online/offline basic scenarios). Prefer dummy/lightweight models to validate the end-to-end request-to-output-structure/streaming chain (typically `tests/e2e/online_serving/` and `tests/e2e/offline_inference/`).
@@ -496,9 +573,10 @@ If the test is not already collected by an existing pipeline command (for exampl
 
 | Test level | Edit this file | Typical trigger / intent |
 |------------|----------------|---------------------------|
-| **L1** and **L2** | [`.buildkite/test-ready.yml`](../../../.buildkite/test-ready.yml) | PR **ready** label; L1 CPU + L2 GPU/basic e2e (steps labeled **Omni ·**, **TTS ·**, **Diffusion ·**) |
-| **L3** | [`.buildkite/test-merge.yml`](../../../.buildkite/test-merge.yml) | Post-merge; `advanced_model` integration per model type |
-| **L4** | [`.buildkite/test-nightly.yml`](../../../.buildkite/test-nightly.yml) | Nightly; grouped by model type (see below) |
+| **L1** and **L2** | [`.buildkite/test-ready.yml`](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/test-ready.yml) | PR **ready** label; L1 CPU + L2 GPU/basic e2e (steps labeled **Omni ·**, **TTS ·**, **Diffusion ·**) |
+| **L3** | [`.buildkite/test-merge.yml`](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/test-merge.yml) | Post-merge; `advanced_model` integration per model type |
+| **L4** | [`.buildkite/test-nightly.yml`](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/test-nightly.yml) | Nightly; grouped by model type (see below) |
+| **Invalid param / reliability (weekly)** | [`.buildkite/test-weekly.yml`](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/test-weekly.yml) | Weekly; `tests/dfx/reliability/invalid_param_test/` — **not** L1–L4 e2e pipelines |
 
 **Level-specific Buildkite delivery (follow the user’s requested level):**
 
@@ -507,6 +585,7 @@ If the test is not already collected by an existing pipeline command (for exampl
 | **L4** (`*_expansion.py`, `full_model`) | `test-nightly.yml` — append file to the matching nightly shard (X2I / X2V / Omni / TTS) **or** note it is already collected by an existing `-m` / `-k` sweep | `test-merge.yml` (L3 / `advanced_model`) or `test-ready.yml` (L2) |
 | **L3** | `test-merge.yml` with `advanced_model` + `source_file_dependencies` | `test-nightly.yml` unless user also wants nightly |
 | **L2** | `test-ready.yml` with `core_model` + `source_file_dependencies` | merge / nightly pipelines |
+| **Invalid param / 异常参数** | `test-weekly.yml` — **Invalid parameters Test** group (`-m "slow and H100"` / `-m "slow and L4"`). Usually **no YAML edit** when appending cases to existing `invalid_param_test` scripts | `test-ready.yml`, `test-merge.yml`, `test-nightly.yml` |
 
 `test-nightly.yml` shards use **explicit pytest file paths** in `commands` (and PR labels like `diffusion-x2iat-test`); they generally **do not** use `source_file_dependencies`. Only suggest merge/ready YAML when the requested level is L3/L2 (or the user explicitly asks for multi-level CI).
 
@@ -676,7 +755,7 @@ When extending an **existing** E2E step to run an additional test file, **append
 
 #### L3 / L4: validating Buildkite from a feature branch (root `pipeline.yml`)
 
-Production behavior is driven by [`.buildkite/pipeline.yml`](../../../.buildkite/pipeline.yml): it builds the CI image, then uploads **L2** (`test-ready.yml` on non-`main`), **L3** (`test-merge.yml` when `build.branch == "main"`), and **L4** (`test-nightly.yml` when `build.env("NIGHTLY") == "1"`).
+Production behavior is driven by [`.buildkite/pipeline.yml`](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/pipeline.yml): it builds the CI image, then uploads **L2** (`test-ready.yml` on non-`main`), **L3** (`test-merge.yml` when `build.branch == "main"`), and **L4** (`test-nightly.yml` when `build.env("NIGHTLY") == "1"`).
 
 When you add or debug **L3** or **L4** tests and need those child pipelines to run **off `main`** or **without** `NIGHTLY=1`, apply **temporary** edits (revert before merge):
 
@@ -688,7 +767,7 @@ When you add or debug **L3** or **L4** tests and need those child pipelines to r
 
 3. **L4 — nightly pipeline**  
    **Comment out** `if: build.env("NIGHTLY") == "1"` on the **Upload Nightly Pipeline** step in `pipeline.yml` so the nightly definition is uploaded without setting the env var.  
-   Child steps in [`test-nightly.yml`](../../../.buildkite/test-nightly.yml) often repeat `if: build.env("NIGHTLY") == "1"`; **comment out those lines on the steps you need to run**, otherwise they will still be skipped after upload.
+   Child steps in [`test-nightly.yml`](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/test-nightly.yml) often repeat `if: build.env("NIGHTLY") == "1"`; **comment out those lines on the steps you need to run**, otherwise they will still be skipped after upload.
 
 ### Step 6: Run Tests
 
@@ -711,6 +790,8 @@ Full templates live in [references/test-routing.md](references/test-routing.md).
 | **Diffusion X2I L4 nightly** | `pytest -s -v e2e/online_serving/test_qwen_image_expansion.py -m "full_model and diffusion and H100" --run-level=full_model` |
 | **Diffusion X2I L4 perf (nightly)** | `pytest -s -v dfx/perf/scripts/run_diffusion_benchmark.py --test-config-file dfx/perf/tests/test_qwen_image_vllm_omni.json` |
 | **Diffusion X2V L4 nightly** | `pytest -s -v e2e/online_serving/test_wan22_expansion.py -m "full_model and cuda" --run-level=full_model` |
+| **Invalid param (weekly H100)** | `pytest -s -v dfx/reliability/invalid_param_test/ -m "slow and H100"` |
+| **Invalid param (weekly L4)** | `pytest -s -v dfx/reliability/invalid_param_test/ -m "slow and L4"` |
 | **L1 CPU** | `pytest -s -v -m "core_model and cpu"` |
 
 **Prerequisites to mention when relevant**: GPU model (e.g. L4 vs H100), `HF_HOME` / token for hub weights, module-level `skipif` (NPU/XPU-only gaps), and whether CI already collects the path (e.g. `test_*_expansion.py` glob in `test-nightly.yml`).
@@ -727,30 +808,32 @@ Before finishing:
 - Is the test deterministic (no fragile timing/network coupling)?
 - Is runtime appropriate for the selected level?
 - Are markers and `--run-level` consistent?
+- **Invalid-param cases** in `tests/dfx/reliability/invalid_param_test/` (not e2e), using `send_*_http_request` + `err_code`, with `pytest.mark.slow` and correct `H100` / `L4` hardware mark?
 
 ## Output Format
 
 When completing a request, return:
 
-1. **Test plan** (level, markers, file target, **L4 pillar(s)** delivered: Function / Accuracy / Perf / Doc, and **module basename** `test_{slug}.py` / `test_{slug}_expansion.py` for model e2e)
-2. **Generated/updated test file(s)** — and **`tests/helpers/runtime.py`** / **`tests/helpers/assertions.py`** when new `send_*` or shared assert helpers are required (do not leave ad-hoc HTTP or `_assert_*` in test modules). **If L4 Perf was requested**, also list **`tests/dfx/perf/tests/*.json`** (and script changes if any).
+1. **Test plan** (level, markers, file target, **L4 pillar(s)** if applicable: Function / Accuracy / Perf / Doc; **or** **Invalid param** pillar with target `invalid_param_test/test_invalid_<area>.py`; module basename for e2e: `test_{slug}.py` / `test_{slug}_expansion.py`)
+2. **Generated/updated test file(s)** — and **`tests/helpers/runtime.py`** / **`tests/helpers/assertions.py`** when new `send_*` or shared assert helpers are required (do not leave ad-hoc HTTP or `_assert_*` in test modules). **If L4 Perf was requested**, also list **`tests/dfx/perf/tests/*.json`**. **If invalid-param cases were requested**, list the **`invalid_param_test/` script** and parametrized `test_*` / new `id=` rows — **not** e2e paths.
 3. **Buildkite change** — **match the requested level and pillar**:
    - **L4 Function**: `test-nightly.yml` **Function Test** shard (file list / note existing sweep). **No** `test-merge.yml` unless user also asked for L3.
    - **L4 Perf**: `test-nightly.yml` **Perf Test · &lt;Model&gt;** step (new step or extend commands); include env exports + artifact upload pattern from a sibling perf job.
    - **L4 Accuracy**: `test-nightly.yml` **Accuracy Test** step under the same model-type group.
    - **L3**: `test-merge.yml` + full `source_file_dependencies` + `agents` + `plugins`.
    - **L2**: `test-ready.yml` + same E2E block requirements.
-   If the user asked only for **L4 功能用例**, state explicitly that **Perf / Accuracy were not included** (offer to add if needed).
+   - **Invalid param / 异常参数**: `test-weekly.yml` — note **Invalid parameters Test · H100/L4** group; usually **no YAML change** when only extending existing scripts.
+   If the user asked only for **L4 功能用例**, state explicitly that **Perf / Accuracy / Invalid param** were not included (offer to add if needed). If the plan mixes **success e2e** and **invalid param**, split deliverables across e2e vs `invalid_param_test/` and call out both CI files.
 4. **Run commands (required)** — always include, in fenced `bash` blocks:
    - **Local — whole file**: `cd tests` then `pytest -s -v <path> …`
    - **Local — single test** (optional but preferred when the change is one function): `pytest -s -v path::test_func …`
    - **CI-like** (when not L1 CPU): the same **marker + `--run-level`** pairing the level uses (see [references/test-routing.md](references/test-routing.md) and **Step 6** table above)
-   - **Prerequisites** (one line): e.g. “需要 CUDA L4 + 已拉取权重”“需要 H100 + `HF_TOKEN`”“本机未装 vllm 时仅校验语法”
+   - **Prerequisites** (one line): e.g. “Requires CUDA L4 + weights cached locally”; “Requires H100 + `HF_TOKEN`”; “Syntax-only validation when vllm is not installed locally”
 5. **Result summary** (pass/fail if you executed tests; if not executed, state that explicitly and what the user should run)
 
 ## Additional Resources
 
 - Marker and command routing: [references/test-routing.md](references/test-routing.md)
-- CI pipelines: `.buildkite/test-ready.yml` (L1/L2), `test-merge.yml` (L3), `test-nightly.yml` (L4)
-- L4 documentation example tests (naming, extraction vs copied scripts, output dirs, skips): [docs/contributing/ci/test_examples/doc_example_tests.inc.md](../../../docs/contributing/ci/test_examples/doc_example_tests.inc.md) — see also [PR #1910](https://github.com/vllm-project/vllm-omni/pull/1910)
+- CI pipelines (vllm-omni): [test-ready.yml](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/test-ready.yml) (L1/L2), [test-merge.yml](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/test-merge.yml) (L3), [test-nightly.yml](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/test-nightly.yml) (L4), [test-weekly.yml](https://github.com/vllm-project/vllm-omni/blob/main/.buildkite/test-weekly.yml) (invalid param / reliability)
+- L4 documentation example tests (naming, extraction vs copied scripts, output dirs, skips): [docs/contributing/ci/test_examples/doc_example_tests.inc.md](https://github.com/vllm-project/vllm-omni/blob/main/docs/contributing/ci/test_examples/doc_example_tests.inc.md) — see also [PR #1910](https://github.com/vllm-project/vllm-omni/pull/1910)
 - Bug regression coverage rubric: [../vllm-omni-review/references/bug-test-coverage.md](../vllm-omni-review/references/bug-test-coverage.md)
