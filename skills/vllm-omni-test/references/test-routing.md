@@ -13,25 +13,66 @@ When generating a **new** test module tied to a **specific model** under `tests/
 
 Normalize the slug from the **repo segment only** (after `Org/`), lowercase, replace `.`, `-`, and spaces with `_`; **do not** prefix the org (avoid `qwen_qwen2_5_omni_7b`). Drop trailing size tokens like `7b` when one file per model line is enough — e.g. `Qwen/Qwen2.5-Omni-7B` → `test_qwen2_5_omni.py` / `test_qwen2_5_omni_expansion.py`. L1 modules elsewhere are not required to follow this.
 
+## Model type markers (`omni` / `tts` / `diffusion`)
+
+Every model-centric e2e test must declare **exactly one** type marker:
+
+| Marker | Model family | Typical APIs |
+|--------|--------------|--------------|
+| `pytest.mark.omni` | Multimodal LLM (Qwen-Omni, …) | `send_omni_request`, `omni_runner`, stage YAML |
+| `pytest.mark.tts` | TTS / speech synthesis | `send_audio_speech_request`, `/v1/audio/speech` |
+| `pytest.mark.diffusion` | Diffusion generative models | `send_diffusion_request`, `send_video_diffusion_request`, `send_images_generations_http_request`, `OmniDiffusionSamplingParams` |
+
+**Diffusion** uses one marker for all output modalities. Nightly CI splits diffusion by **group**, not by extra markers:
+
+| Nightly group (`test-nightly.yml`) | Diffusion scope | Examples |
+|-----------------------------------|-----------------|----------|
+| **Diffusion X2I(&A&T) Model Test** | x2**i** / x2**a** / x2**t** — image, audio, text (non-video) | Qwen-Image*, BAGEL, FLUX, SD3, Z-Image, LongCat, DreamZero |
+| **Diffusion X2V Model Test** | x2**v** — video only | Wan2.2, HunyuanVideo 1.5, Wan VACE |
+
+PR labels for selective nightly runs: `diffusion-x2iat-test`, `diffusion-x2v-test` (plus `nightly-test` / `NIGHTLY=1`).
+
 ## Level and Marker Mapping
 
 | Goal | Suggested Level | Marker baseline | Typical location |
 |------|------------------|-----------------|------------------|
 | Unit logic, regression on pure code path | L1 | `core_model and cpu` | `tests/<component>/test_*.py` |
-| Basic integration/e2e | L2 | `core_model` (+ hardware marker if needed) | `tests/e2e/...` |
-| Advanced integration/perf/accuracy | L3 | `advanced_model` | `tests/e2e/...` |
-| Full function/perf/nightly | L4 | `advanced_model` (+ perf markers) | `tests/e2e/...`, perf scripts |
+
+### L1 unit tests — mocking (`mocker`, not `unittest.mock`)
+
+L1 modules run in **Simple Test** (`test-ready.yml` / `test-merge.yml`: `-m 'core_model and cpu'`). When isolation requires doubles:
+
+- **Use** the **`mocker`** fixture (`pytest-mock`): `mocker.patch`, `mocker.spy`, `mocker.Mock`, `mocker.MagicMock`, `mocker.AsyncMock`.
+- **Use** **`monkeypatch`** for env vars and simple `setattr` / `delattr` without mock objects.
+- **Do not use** `unittest.mock` — no `from unittest.mock import ...`, no `@patch`, no `with patch(...)`.
+
+```python
+# Good (L1)
+def test_handler(mocker):
+    mocker.patch("vllm_omni.pkg.fn", return_value=0)
+
+# Bad (L1)
+from unittest.mock import patch
+
+@patch("vllm_omni.pkg.fn")
+def test_handler(mock_fn): ...
+```
+
+E2E (L2+) should not rely on mocks unless documenting a rare exception; prefer real (or lightweight) execution paths.
+| Basic integration/e2e | L2 | `core_model` + **one of** `omni` / `tts` / `diffusion` | `tests/e2e/...` |
+| Advanced integration | L3 | `advanced_model` + type marker | `tests/e2e/...` |
+| Full function / nightly | L4 | `full_model` (nightly) + type marker | **Function:** `tests/e2e/*_expansion.py`; **Perf:** `tests/dfx/perf/tests/*.json`; **Accuracy:** `tests/e2e/accuracy/` |
 
 ## Marker Selection Rules
 
-1. Start with one level marker:
-   - `core_model` for L1/L2
-   - `advanced_model` for L3/L4
-2. Add domain marker when relevant:
-   - `diffusion`, `omni`, `cache`, `parallel`
-3. Add hardware marker explicitly:
-   - `cpu`, `cuda`, `rocm`, `npu`, etc.
-4. For multi-card tests, use `@hardware_test(...)` to auto-apply distributed markers.
+1. **Level** (pick one):
+   - `core_model` — L1/L2 (`test-ready.yml`)
+   - `advanced_model` — L3 (`test-merge.yml`)
+   - `full_model` — L4 nightly (`test-nightly.yml`); some expansion tests still carry both `advanced_model` and `full_model` during migration
+2. **Model type** (pick one): `omni`, `tts`, or `diffusion`
+3. **Cross-cutting** when relevant: `parallel`, `cache`, `example`, `benchmark`
+4. **Hardware**: `cpu`, `cuda`, `rocm`, `npu`, `L4`, `H100`, `distributed_cuda`, …
+5. Multi-card: `@hardware_test(...)` in `tests/helpers/mark.py`
 
 ## Command Templates
 
@@ -56,12 +97,83 @@ cd tests
 pytest -s -v -m "core_model and not cpu" --run-level=core_model
 ```
 
-### L3/L4 baseline
+### L3 (merge)
 
 ```bash
 cd tests
 pytest -s -v -m "advanced_model" --run-level=advanced_model
 ```
+
+### L4 (nightly)
+
+**Function** (e2e expansion — default when user asks for “L4 功能用例”):
+
+```bash
+cd tests
+pytest -s -v e2e/online_serving/test_qwen_image_expansion.py -m "full_model and diffusion and H100" --run-level=full_model
+```
+
+**Perf** (dfx benchmark harness — separate pillar; not `omni_server` fixtures):
+
+```bash
+cd tests
+export DIFFUSION_BENCHMARK_DIR=tests/dfx/perf/results
+export DIFFUSION_ATTENTION_BACKEND=FLASH_ATTN
+pytest -s -v dfx/perf/scripts/run_diffusion_benchmark.py \
+  --test-config-file dfx/perf/tests/test_qwen_image_vllm_omni.json
+```
+
+Broad marker sweep (when no explicit file shard):
+
+```bash
+cd tests
+pytest -s -v -m "full_model" --run-level=full_model
+```
+
+## L4 nightly pillars (Function / Accuracy / Perf)
+
+Nightly **L4** for a model is often **multiple jobs** in `test-nightly.yml`, not a single pytest module:
+
+| Pillar | User says | Deliver | Nightly step |
+|--------|-----------|---------|--------------|
+| **Function** | “L4 功能用例” / “functional” / `*_expansion.py` | `tests/e2e/.../test_<model>_expansion.py` | `· Function Test with H100/L4` |
+| **Perf** | “性能” / “perf” / “benchmark” / “完整 L4” | `tests/dfx/perf/tests/test_<model>_vllm_omni.json` + runner | `· Perf Test · <Model>` |
+| **Accuracy** | “精度” / “accuracy” / “similarity” | `tests/e2e/accuracy/test_<model>*.py` | `· Accuracy Test` |
+
+**Rule:** “L4 功能用例” → **Function only** by default. State that Perf/Accuracy are separate pillars; add them only when requested.
+
+**Diffusion perf JSON** (`tests/dfx/perf/tests/test_<slug>_vllm_omni.json`): array of objects with `test_name`, `server_params` (`model`, `serve_args`), `benchmark_params[]`, and per-workload **`baseline`** (`throughput_qps`, `latency_mean`, `peak_memory_mb_mean`). Copy structure from `test_qwen_image_vllm_omni.json` in-tree.
+
+**Diffusion perf nightly step** (under **Diffusion X2I(&A&T)**; copy full `kubernetes` plugins from `· Perf Test · Qwen-Image`):
+
+```yaml
+      - label: ":full_moon: Diffusion X2I(&A&T) · Perf Test · <Model-Display-Name>"
+        key: nightly-diffusion-x2iat-performance-<slug>
+        timeout_in_minutes: 180
+        commands:
+          - export DIFFUSION_BENCHMARK_DIR=tests/dfx/perf/results
+          - export DIFFUSION_ATTENTION_BACKEND=FLASH_ATTN
+          - export CACHE_DIT_VERSION=1.3.0
+          - |
+            set +e
+            pytest -s -v tests/dfx/perf/scripts/run_diffusion_benchmark.py --test-config-file tests/dfx/perf/tests/test_<slug>_vllm_omni.json
+            EXIT=$$?
+            buildkite-agent artifact upload "tests/dfx/perf/results/diffusion_result_*.json"
+            buildkite-agent artifact upload "tests/dfx/perf/results/logs/*.log"
+            exit $$EXIT
+        agents:
+          queue: "mithril-h100-pool"
+        plugins:
+          # … full kubernetes block (often multi-GPU) — copy from Perf Test · Qwen-Image
+```
+
+| Model type | Perf runner | Config example |
+|------------|-------------|----------------|
+| Diffusion X2I/X2V | `dfx/perf/scripts/run_diffusion_benchmark.py` | `test_qwen_image_vllm_omni.json` |
+| TTS | `dfx/perf/scripts/run_benchmark.py` | `test_tts.json` (`BENCHMARK_DIR`) |
+| Omni | `run_benchmark.py` / omni configs in-tree | `test_omni*.json` |
+
+Do **not** put throughput/latency baselines inside `test_*_expansion.py` — that belongs in the dfx perf JSON + nightly Perf job.
 
 ### Platform-targeted examples
 
@@ -76,41 +188,139 @@ Paths are relative to `tests/` after `cd tests`.
 
 | Scenario | Example command |
 |----------|------------------|
-| Omni offline L2 (Qwen2.5-Omni, GPU) | `pytest -s -v e2e/offline_inference/test_qwen2_5_omni.py -m "core_model and not cpu" --run-level=core_model` |
-| Omni offline L2 — one test | `pytest -s -v e2e/offline_inference/test_qwen2_5_omni.py::test_text_to_text -m "core_model and not cpu" --run-level=core_model` |
-| Omni offline L2 (Qwen3.5-9B, CUDA/ROCm) | `pytest -s -v e2e/offline_inference/test_qwen3_5_9b.py -m "core_model and not cpu" --run-level=core_model` |
-| Diffusion offline (incl. qwen-image random / Z-Image) | `pytest -s -v e2e/offline_inference/test_t2i_model.py -m "core_model and not cpu" --run-level=core_model` (see file for `run_level` skips) |
-| Diffusion L4 online expansion (Qwen-Image T2I, H100) | `pytest -s -v e2e/online_serving/test_qwen_image_expansion.py -m "advanced_model and diffusion and H100" --run-level=advanced_model` |
-| Diffusion L4 online expansion (Qwen-Image-Edit) | `pytest -s -v e2e/online_serving/test_qwen_image_edit_expansion.py -m "advanced_model and diffusion and H100" --run-level=advanced_model` |
+| **Omni** offline L2 | `pytest -s -v e2e/offline_inference/test_qwen2_5_omni.py -m "core_model and omni and not cpu" --run-level=core_model` |
+| **Omni** offline L2 — one test | `pytest -s -v e2e/offline_inference/test_qwen2_5_omni.py::test_text_to_text -m "core_model and omni and not cpu" --run-level=core_model` |
+| **Omni** online L2 | `pytest -s -v e2e/online_serving/test_qwen3_omni.py -m "core_model and omni" --run-level=core_model` |
+| **Omni** offline L2 (Qwen3.5-9B VL) | `pytest -s -v e2e/offline_inference/test_qwen3_5_9b.py -m "core_model and omni and not cpu" --run-level=core_model` |
+| **TTS** online L2 | `pytest -s -v e2e/online_serving/test_qwen3_tts_base.py -m "core_model and tts" --run-level=core_model` |
+| **TTS** online L2 — one test | `pytest -s -v e2e/online_serving/test_qwen3_tts_base.py::test_text_to_audio_001 -m "core_model and tts" --run-level=core_model` |
+| **Diffusion X2I** offline L2 | `pytest -s -v e2e/offline_inference/test_t2i_model.py -m "core_model and diffusion and not cpu" --run-level=core_model` |
+| **Diffusion X2I** L2 online smoke | `pytest -s -v e2e/online_serving/test_qwen_image.py e2e/online_serving/test_bagel.py -m "core_model and diffusion" --run-level=core_model` |
+| **Diffusion X2V** L2 online smoke | `pytest -s -v e2e/online_serving/test_wan22_t2v.py -m "core_model and diffusion" --run-level=core_model` |
+| **Diffusion X2I** L4 online expansion (H100) | `pytest -s -v e2e/online_serving/test_qwen_image_expansion.py -m "full_model and diffusion and H100" --run-level=full_model` |
+| **Diffusion X2I** L4 perf (nightly) | `pytest -s -v dfx/perf/scripts/run_diffusion_benchmark.py --test-config-file dfx/perf/tests/test_qwen_image_vllm_omni.json` |
+| **Diffusion X2I** L4 online expansion (Edit) | `pytest -s -v e2e/online_serving/test_qwen_image_edit_expansion.py -m "full_model and diffusion and H100" --run-level=full_model` |
+| **Diffusion X2V** L4 nightly | `pytest -s -v e2e/online_serving/test_wan22_expansion.py -m "full_model and cuda" --run-level=full_model` |
 
 ### Agent / author completion checklist
 
 When adding or modifying tests, do not stop at “where the file lives” — also deliver:
 
 1. **Local**: `cd tests` + `pytest -s -v <path>` (and `path::test_func` when a single case is enough).
-2. **CI-like**: marker string + `--run-level` matching the test’s level (`core_model` vs `advanced_model`).
-3. **Prerequisites**: GPU tier, HF cache/token, and any module `skipif` / platform-only YAML.
+2. **CI-like**: marker string + `--run-level` matching the pipeline (`core_model` / `advanced_model` / `full_model`).
+3. **L1 mocks**: `mocker` / `monkeypatch` only; no `unittest.mock`.
+4. **API client + assert placement**: **General** validation → implement in `assertions.py`, call **inside** `send_*_request` in `runtime.py`; tests call **`send_*_request` only**. **Special** case validation → `assert_*` in `assertions.py`, called **in the test** after `send_*_request`. Low-level `send_*_http_request` is for negative/dfx tests (`err_code`), not ordinary L2+ success e2e.
+5. **Shared assertions**: logic in **`tests/helpers/assertions.py`**; general checks inside `send_*_request`; special checks only in the test. No `_assert_*` in `test_*.py`.
+6. **One case → one `test_*`**: function name reflects what is validated; no `if case_id == ...` mega-test merging multiple scenarios.
+7. **Fixture scope**: default **`omni_server` + `openai_client`** / **`omni_runner` + `omni_runner_handler`** (module). Use **`omni_server_function` + `openai_client_function`** / **`omni_runner_function` + `omni_runner_handler_function`** only when each `test_*` must spawn a fresh instance. Parametrize name must match fixture (`omni_server` vs `omni_server_function`).
+8. **Type marker**: `omni`, `tts`, or `diffusion` on every model e2e module.
+9. **Diffusion L4 Function**: wire `*_expansion.py` into **X2I(&A&T)** or **X2V** **Function Test** in **`test-nightly.yml` only** — do not add `test-merge.yml` unless the user also requested L3.
+10. **Diffusion L4 Perf** (only when requested): add `tests/dfx/perf/tests/test_<slug>_vllm_omni.json` + **Perf Test · &lt;Model&gt;** step (artifact upload); not part of “L4 功能用例” by default.
+11. **E2E Buildkite (L2/L3 only)**: `test-ready.yml` / `test-merge.yml` steps need **`source_file_dependencies`** + full **`agents` + `plugins`**. **L4 nightly** uses explicit file lists or perf scripts in `test-nightly.yml` (no merge job).
+12. **Prerequisites**: GPU tier, HF cache/token, and any module `skipif` / platform-only YAML.
 
 ## Buildkite pipeline mapping
 
-After adding or changing tests, update the pipeline that actually executes them (unless an existing step already collects them via `-m` / file path):
+| Level | Repo file | Model-type grouping |
+|-------|-----------|---------------------|
+| L1, L2 | `.buildkite/test-ready.yml` | Steps prefixed **Omni ·**, **TTS ·**, **Diffusion ·** under **E2E Test** — **`source_file_dependencies` required** |
+| L3 | `.buildkite/test-merge.yml` | Per-model E2E steps; `-m "advanced_model and …"` — **`source_file_dependencies` required** |
+| L4 | `.buildkite/test-nightly.yml` | **Omni / TTS / Diffusion X2I(&A&T) / X2V** — each group may have **Function**, **Accuracy**, **Perf**, **Doc** steps |
 
-| Level | Repo file |
-|-------|-----------|
-| L1, L2 | `.buildkite/test-ready.yml` |
-| L3 | `.buildkite/test-merge.yml` |
-| L4 | `.buildkite/test-nightly.yml` |
+### `source_file_dependencies` (E2E Test only — ready & merge)
 
-The root [`.buildkite/pipeline.yml`](../../../.buildkite/pipeline.yml) decides **which** child file is uploaded (`test-ready.yml` vs `test-merge.yml` vs `test-nightly.yml`) and under which `if` conditions. To run **L3** on a feature branch, comment out `if: build.branch == "main"` on the merge upload step (or temporarily point the ready-step `pipeline upload` at `test-merge.yml`). To run **L4** without `NIGHTLY=1`, comment out the nightly upload step’s `if: build.env("NIGHTLY") == "1"` and the same `if` on relevant steps inside `test-nightly.yml`. Revert such edits before merging. See comments at the top of `pipeline.yml` and **Step 5** in the vllm-omni-test skill.
+Required on each step inside the **E2E Test** group in `test-ready.yml` and `test-merge.yml`. Typical entries:
+
+| Category | Path pattern |
+|----------|----------------|
+| Test module | `tests/e2e/online_serving/test_<slug>.py`, `tests/e2e/offline_inference/test_<slug>.py` |
+| API client helpers | `tests/helpers/runtime.py` (when the e2e job uses newly added `send_*` methods) |
+| Shared assert helpers | `tests/helpers/assertions.py` (when the e2e job uses newly added `assert_*` helpers) |
+| AR / omni model | `vllm_omni/model_executor/models/<family>/` |
+| Diffusion model | `vllm_omni/diffusion/models/<family>/` |
+| Stage processor | `vllm_omni/model_executor/stage_input_processors/<family>.py` |
+| Deploy config | `vllm_omni/deploy/<name>.yaml` or `vllm_omni/deploy/ci/<name>.yaml` |
+
+Copy the dependency block from the closest in-tree E2E step for the same model family. Update the list whenever the pytest command or server YAML changes.
+
+### E2E `agents` + `plugins` blocks (required — do not truncate)
+
+When generating or documenting E2E steps, **always include the complete `plugins` section**. Set **`timeout_in_minutes`** on the step for the job deadline; run **`pytest` directly** in `commands` (no `timeout 40m bash -c` wrapper around pytest).
+
+Common patterns in `test-ready.yml` / `test-merge.yml`:
+
+| Queue | Plugin | Required fields |
+|-------|--------|-----------------|
+| `mithril-h100-pool` | `kubernetes` | `resources.limits.nvidia.com/gpu`, `volumeMounts` (`devshm`, `hf-cache`), `env` (`HF_HOME`, `HF_TOKEN` via `secretKeyRef`), `nodeSelector: gpu-h100-sxm`, `volumes` (`devshm` emptyDir, `hf-cache` hostPath `/mnt/hf-cache`) |
+| `gpu_1_queue` / `gpu_4_queue` | `docker#v5.2.0` | `image`, `always-pull`, `propagate-environment`, `shm-size: "8gb"`, `environment: HF_HOME`, `volumes: /fsx/hf_cache` (add `HF_TOKEN` when the step needs hub access) |
+
+**H100 kubernetes template** (copy from **Diffusion · Bagel Test** / **Diffusion · Qwen Image Test** in-tree):
+
+```yaml
+  agents:
+    queue: "mithril-h100-pool"
+  plugins:
+    - kubernetes:
+        podSpec:
+          containers:
+            - image: 936637512419.dkr.ecr.us-west-2.amazonaws.com/vllm-ci-pull-through-cache/q9t5s3a7/vllm-ci-test-repo:$BUILDKITE_COMMIT
+              resources:
+                limits:
+                  nvidia.com/gpu: 1
+              volumeMounts:
+                - name: devshm
+                  mountPath: /dev/shm
+                - name: hf-cache
+                  mountPath: /root/.cache/huggingface
+              env:
+                - name: HF_HOME
+                  value: /root/.cache/huggingface
+                - name: HF_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: hf-token-secret
+                      key: token
+          nodeSelector:
+            node.kubernetes.io/instance-type: gpu-h100-sxm
+          volumes:
+            - name: devshm
+              emptyDir:
+                medium: Memory
+            - name: hf-cache
+              hostPath:
+                path: /mnt/hf-cache
+                type: DirectoryOrCreate
+```
+
+**L4 docker template** (copy from **TTS · Qwen3-TTS Base Test** in `test-merge.yml`):
+
+```yaml
+  agents:
+    queue: "gpu_1_queue"
+  plugins:
+    - docker#v5.2.0:
+        image: public.ecr.aws/q9t5s3a7/vllm-ci-test-repo:$BUILDKITE_COMMIT
+        always-pull: true
+        propagate-environment: true
+        shm-size: "8gb"
+        environment:
+          - "HF_HOME=/fsx/hf_cache"
+        volumes:
+          - "/fsx/hf_cache:/fsx/hf_cache"
+```
+
+When extending an existing step (e.g. add `tests/e2e/offline_inference/test_qwen_image.py` to **Diffusion · Qwen Image Test**), update `source_file_dependencies` and `commands` only; **keep the existing `agents` + `plugins` block unchanged** unless the hardware tier changes.
+
+The root [`.buildkite/pipeline.yml`](../../../.buildkite/pipeline.yml) decides **which** child file is uploaded. To run **L3** on a feature branch, comment out `if: build.branch == "main"` on the merge upload step. To run **L4** without `NIGHTLY=1`, comment out the nightly upload step’s `if: build.env("NIGHTLY") == "1"` and the same `if` on relevant steps inside `test-nightly.yml`. Revert such edits before merging.
 
 Platform-specific pipelines (e.g. AMD) follow the same level → file pairing under `.buildkite/`.
 
 ## Diffusion RFC (#1832) Alignment Tips
 
-For diffusion model coverage planning:
+For **X2I(&A&T)** coverage planning:
 
 - Prioritize high-value feature combinations with minimal case count.
-- Split into:
-  - lightweight validation case(s) for quick checks
-  - advanced/nightly case(s) for broader feature combinations
-- If hardware is insufficient, provide an executable reduced case plus a deferred full CI/nightly plan.
+- Split into lightweight L1/L2 validation plus L4 `*_expansion.py` under the **X2I** nightly shards.
+- **X2V** models (Wan, HunyuanVideo) stay in the **X2V** group — do not merge into X2I sweeps.
+
+If hardware is insufficient, provide an executable reduced case plus a deferred full CI/nightly plan.
