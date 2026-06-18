@@ -39,7 +39,11 @@ from nightly_perf_manual_xlsx import (
     PERF_MANUAL_FILENAME,
     load_perf_manual_with_compare,
 )
-from kanban_assets_perf_summary import _build_perf_rows, build_assets_perf_summary
+from kanban_assets_perf_summary import (
+    _build_perf_rows,
+    _empty_perf_status_counts,
+    build_assets_perf_summary,
+)
 from report_html_theme import EDITORIAL_THEME_CSS
 
 
@@ -1418,6 +1422,7 @@ def _normalize_local_perf_result_record(raw: dict[str, Any], source_file: Path) 
         "task": str(bench.get("task") or result.get("task") or raw.get("Task") or ""),
         "max_concurrency": bench.get("max-concurrency", raw.get("max_concurrency")),
         "num_prompts": bench.get("num-prompts", raw.get("num_prompts")),
+        "qps": bench.get("request-rate", bench.get("request_rate", raw.get("request_rate"))),
         "completed_requests": result.get("completed_requests", raw.get("completed")),
         "failed_requests": result.get("failed_requests", raw.get("failed")),
         "date": date,
@@ -1426,7 +1431,7 @@ def _normalize_local_perf_result_record(raw: dict[str, Any], source_file: Path) 
     }
     record["config_key"] = " | ".join(
         str(record.get(field) or "")
-        for field in ("benchmark_name", "dataset_name", "task", "max_concurrency", "num_prompts")
+        for field in ("benchmark_name", "dataset_name", "task", "max_concurrency", "num_prompts", "qps")
     )
 
     _set_scaled_metric(record, "throughput_qps", result.get("throughput_qps"))
@@ -1450,7 +1455,7 @@ def _local_perf_summary(
             "result_root": "",
             "result_dir": "",
             "rows": [],
-            "summary": {"pass": 0, "fail": 0, "n/a": 0},
+            "summary": _empty_perf_status_counts(),
         }, {}
 
     result_root = local_perf_cfg.result_root.resolve()
@@ -1462,7 +1467,7 @@ def _local_perf_summary(
             "result_root": str(result_root),
             "result_dir": "",
             "rows": [],
-            "summary": {"pass": 0, "fail": 0, "n/a": 0},
+            "summary": _empty_perf_status_counts(),
         }, {}
 
     result_files = _local_perf_result_files(result_dir)
@@ -1473,7 +1478,7 @@ def _local_perf_summary(
             "result_root": str(result_root),
             "result_dir": str(result_dir),
             "rows": [],
-            "summary": {"pass": 0, "fail": 0, "n/a": 0},
+            "summary": _empty_perf_status_counts(),
         }, {}
 
     records: list[dict[str, Any]] = []
@@ -1491,7 +1496,7 @@ def _local_perf_summary(
     rows = _build_perf_rows(records)
     rows = [row for row in rows if row.baseline is not None]
     rows.sort(key=lambda row: (row.model, row.config_key, row.metric))
-    counts = {"pass": 0, "fail": 0, "n/a": 0}
+    counts = _empty_perf_status_counts()
     grouped_rows: dict[str, list[list[str]]] = {}
     for row in rows:
         counts[row.status] = counts.get(row.status, 0) + 1
@@ -1646,6 +1651,7 @@ def _render_buildkite_perf_inner_html(kanban_cfg: KanbanAssetsConfig) -> str:
     parts.append(
         '<p class="meta"><strong>统计:</strong> '
         f"pass={int(stats.get('pass', 0))}, "
+        f"normal={int(stats.get('normal', 0))}, "
         f"fail={int(stats.get('fail', 0))}, "
         f"n/a={int(stats.get('n/a', 0))}</p>"
     )
@@ -1687,7 +1693,9 @@ def _append_buildkite_perf_markdown(lines: list[str], summary: dict[str, Any], g
     stats = summary.get("summary", {})
     lines.append(f"- **最新日期:** `{summary.get('latest_day')}`")
     lines.append(
-        f"- **统计:** pass `{int(stats.get('pass', 0))}` / fail `{int(stats.get('fail', 0))}` / n-a `{int(stats.get('n/a', 0))}`"
+        f"- **统计:** pass `{int(stats.get('pass', 0))}` / "
+        f"normal `{int(stats.get('normal', 0))}` / "
+        f"fail `{int(stats.get('fail', 0))}` / n-a `{int(stats.get('n/a', 0))}`"
     )
     lines.append("")
     lines.append("*按模型分组展示（Markdown 无折叠能力）。*")
@@ -1729,6 +1737,7 @@ def _render_local_perf_baseline_inner_html(local_perf_cfg: LocalPerfResultConfig
     parts.append(
         '<p class="meta"><strong>统计:</strong> '
         f"pass={int(stats.get('pass', 0))}, "
+        f"normal={int(stats.get('normal', 0))}, "
         f"fail={int(stats.get('fail', 0))}, "
         f"n/a={int(stats.get('n/a', 0))}</p>"
     )
@@ -1763,7 +1772,9 @@ def _append_local_perf_baseline_markdown(lines: list[str], local_perf_cfg: Local
     stats = summary.get("summary", {})
     lines.append(f"- **最新日期:** `{summary.get('latest_day')}`")
     lines.append(
-        f"- **统计:** pass `{int(stats.get('pass', 0))}` / fail `{int(stats.get('fail', 0))}` / n-a `{int(stats.get('n/a', 0))}`"
+        f"- **统计:** pass `{int(stats.get('pass', 0))}` / "
+        f"normal `{int(stats.get('normal', 0))}` / "
+        f"fail `{int(stats.get('fail', 0))}` / n-a `{int(stats.get('n/a', 0))}`"
     )
     lines.append("")
     for model_name in sorted(grouped_rows.keys()):
