@@ -107,6 +107,9 @@ VLLM_OMNI_BUG_ENV_DEFAULT_VALUE = (
 )
 VLLM_OMNI_BUG_ENV_CI_REPLACEMENT = "ci env"
 VLLM_OMNI_BUG_CODE_VERSION_FIELD_ID = "code-version"
+# GitHub issue labels (exact repo names; comma-separated in issue URL `labels` param).
+VLLM_OMNI_BUG_ISSUE_LABELS_CI = ("bug", "ci-failure", "high priority")
+VLLM_OMNI_BUG_ISSUE_LABELS_LOCAL = ("bug",)
 
 
 def _vllm_omni_bug_env_ci_prefill() -> str:
@@ -260,9 +263,9 @@ def _github_issue_modal_and_script() -> str:
       (<code>{html.escape(VLLM_OMNI_BUG_ISSUE_TEMPLATE)}</code>).
       For <strong>Buildkite</strong> rows, the body uses <code>ci env</code> and tries to fill <strong>vllm / vllm-omni</strong>
       versions by scanning the step log; paste anything missing from the build log if needed.
-      Click <strong>Open GitHub</strong> (template and title are pre-filled; <strong>Buildkite</strong> rows also
-      pre-fill <strong>Your current environment</strong> and <strong>Your code version</strong> when the upstream
-      template defines field ids <code>current-environment</code> / <code>code-version</code>).
+      Click <strong>Open GitHub</strong> (template, title, and labels are pre-filled via URL; labels must already exist on the target repo).
+      <strong>Buildkite</strong> rows use labels <code>bug</code>, <code>ci-failure</code>, <code>high priority</code>.
+      Environment / code-version fields need upstream template field ids (<code>current-environment</code> / <code>code-version</code>).
       Paste the Markdown below into <strong>Describe the bug</strong>. Redact secrets before submitting.</p>
     <textarea id="gh-issue-body-text" class="gh-issue-textarea" rows="20" spellcheck="false"></textarea>
     <footer class="gh-modal-actions">
@@ -285,6 +288,26 @@ def _github_issue_modal_and_script() -> str:
   var issueEnvFieldId = {json.dumps(VLLM_OMNI_BUG_ENV_FIELD_ID)};
   var issueEnvCiValue = {json.dumps(_vllm_omni_bug_env_ci_prefill())};
   var issueCodeVersionFieldId = {json.dumps(VLLM_OMNI_BUG_CODE_VERSION_FIELD_ID)};
+  var issueLabelsCi = {json.dumps(",".join(VLLM_OMNI_BUG_ISSUE_LABELS_CI))};
+  var issueLabelsLocal = {json.dumps(",".join(VLLM_OMNI_BUG_ISSUE_LABELS_LOCAL))};
+
+  function issueLabelsQuery(d) {{
+    return d.env === "ci" ? issueLabelsCi : issueLabelsLocal;
+  }}
+
+  function applyIssueLabels(u, labelsCsv) {{
+    labelsCsv.split(",").forEach(function (lab) {{
+      var t = lab.trim();
+      if (t) u.searchParams.append("labels", t);
+    }});
+  }}
+
+  function finalizeIssueUrl(u) {{
+    // URLSearchParams uses '+' for spaces; GitHub label names (e.g. "high priority") need %20.
+    return u.toString().replace(/labels=([^&]*)/g, function (_m, val) {{
+      return "labels=" + val.replace(/\\+/g, "%20");
+    }});
+  }}
 
   function resolveVersionLines(d) {{
     if (d.env === "ci") {{
@@ -437,6 +460,7 @@ def _github_issue_modal_and_script() -> str:
     var u = new URL(issueBase);
     u.searchParams.set("template", bugTemplate);
     u.searchParams.set("title", issueTitle(d));
+    applyIssueLabels(u, issueLabelsQuery(d));
     if (d.env === "ci") {{
       u.searchParams.set(issueEnvFieldId, issueEnvCiValue);
       var codeVer = issueCodeVersionPrefill(d);
@@ -444,7 +468,7 @@ def _github_issue_modal_and_script() -> str:
         u.searchParams.set(issueCodeVersionFieldId, codeVer);
       }}
     }}
-    openA.href = u.toString();
+    openA.href = finalizeIssueUrl(u);
     modal.hidden = false;
     modal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
@@ -2721,22 +2745,6 @@ def main() -> None:
         default="Nightly local test report",
         help="Report title.",
     )
-    parser.add_argument(
-        "--push-to-kanban",
-        action="store_true",
-        help=(
-            "After --html-report, archive to kanban data/nightly_test_report/ and push via gh CLI "
-            "after user confirmation (requires --kanban-repo-root or $KANBAN_REPO_ROOT)."
-        ),
-    )
-    parser.add_argument(
-        "--push-yes",
-        action="store_true",
-        help=(
-            "With --push-to-kanban: skip confirmation and push after preview "
-            "(use only after the user explicitly confirmed)."
-        ),
-    )
     args = parser.parse_args()
 
     if args.html_report and args.markdown_report:
@@ -2795,39 +2803,6 @@ def main() -> None:
                 kanban_cfg=kanban_cfg,
                 local_perf_cfg=local_perf_cfg,
             )
-        if args.push_to_kanban:
-            from push_report_to_kanban import (
-                GhCliRequiredError,
-                PushCancelledError,
-                PushConfirmationRequiredError,
-                push_report_to_kanban,
-            )
-
-            kanban_root = kanban_cfg.repo_root
-            if kanban_root is None:
-                print(
-                    " --push-to-kanban requires --kanban-repo-root or KANBAN_REPO_ROOT.",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
-            try:
-                plan, note = push_report_to_kanban(
-                    out,
-                    kanban_root,
-                    kind="nightly",
-                    assume_yes=args.push_yes,
-                )
-            except PushCancelledError as exc:
-                print(str(exc), file=sys.stderr)
-                sys.exit(0)
-            except PushConfirmationRequiredError as exc:
-                print(str(exc), file=sys.stderr)
-                sys.exit(3)
-            except (FileNotFoundError, NotADirectoryError, RuntimeError, ValueError, GhCliRequiredError) as exc:
-                print(str(exc), file=sys.stderr)
-                sys.exit(1)
-            print(f"Kanban archive: {kanban_root / plan.dest_rel}")
-            print(note)
     elif args.markdown_report:
         out = args.markdown_report
         out.parent.mkdir(parents=True, exist_ok=True)

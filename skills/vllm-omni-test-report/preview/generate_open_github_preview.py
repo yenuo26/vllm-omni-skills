@@ -7,9 +7,9 @@ import os
 import sys
 from pathlib import Path
 
-# Preview uses fork with issue-form ids until vllm-project/vllm-omni merges the template PR.
+# Preview targets main repo (labels ci-failure / high priority exist there; fork may not).
 os.environ.setdefault(
-    "VLLM_OMNI_ISSUE_REPO", "https://github.com/yenuo26/vllm-omni"
+    "VLLM_OMNI_ISSUE_REPO", "https://github.com/vllm-project/vllm-omni"
 )
 
 _PREVIEW = Path(__file__).resolve().parent

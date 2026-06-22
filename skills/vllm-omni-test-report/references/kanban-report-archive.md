@@ -48,42 +48,27 @@ docs/assets/test_reports/
 
 Kanban **MkDocs** (`mkdocs serve` / `mkdocs build`) runs `scripts/mkdocs_hooks.py` → `scripts/sync_test_reports.py`, which **locally** copies `data/*_test_report/` into `docs/assets/test_reports/` for the Reports page ([docs/reports.md](https://github.com/hsliuustc0106/vllm-omni-kanban/blob/main/docs/reports.md)). That output is gitignored and regenerated at build time — **do not** `git add` it during archive push.
 
-## Automated push
+## Automated archive and push (two steps)
 
 From **`skills/vllm-omni-test-report/`**:
 
-```bash
-gh auth status   # prerequisite
-export KANBAN_REPO_ROOT=/path/to/vllm-omni-kanban
+Archive and push are **separate commands** (report generators do not push):
 
-# After nightly HTML report
+```bash
+# Step 1: copy report, pull, git add, print push preview (no commit/push)
 python scripts/push_report_to_kanban.py \
   --report ./nightly-report-buildkite-latest-YYYY-MM-DD.html \
+  --kanban-repo-root "$KANBAN_REPO_ROOT" \
   --kind nightly
 
-# After release HTML report
-python scripts/push_report_to_kanban.py \
-  --report ./vllm-omni-test-report-YYYY-MM-DD.html \
-  --kind release
+# Step 2: confirm, commit, push (only this script runs git push)
+python scripts/push_kanban_report.py \
+  --kanban-repo-root "$KANBAN_REPO_ROOT"
 ```
 
-Or append **`--push-to-kanban`** to the report generator (requires `--kanban-repo-root` or `$KANBAN_REPO_ROOT`):
+## Step 1 — archive + stage (`push_report_to_kanban.py`)
 
-```bash
-python scripts/nightly_local_log_report.py \
-  --html-report ./nightly-report-buildkite-latest-YYYY-MM-DD.html \
-  --kanban-repo-root "$KANBAN_REPO_ROOT" \
-  --push-to-kanban
-
-python scripts/compose_full_report.py \
-  --out ./vllm-omni-test-report-YYYY-MM-DD.html \
-  --kanban-repo-root "$KANBAN_REPO_ROOT" \
-  --push-to-kanban
-```
-
-## Push behavior (`push_report_to_kanban.py`)
-
-Uses **`gh`** for GitHub authentication; local commit still uses `git`:
+Uses **`gh`** for GitHub authentication on `git pull`:
 
 1. Verify **`gh`** is installed; else exit with install instructions.
 2. Verify **`gh auth status`** (or valid `GH_TOKEN` / `GITHUB_TOKEN`).
@@ -91,14 +76,24 @@ Uses **`gh`** for GitHub authentication; local commit still uses `git`:
 4. `git pull --rebase origin <branch>` with `gh auth git-credential` (unless `--skip-pull`).
 5. `git add` **only** the new/updated file under `data/*_test_report/` (not `docs/assets/test_reports/`).
 6. **Print push preview** (repository, remote, branch, commit message, staged file list with sizes, `name-status`, `diff --stat`).
-7. **Confirm before push:**
-   - Interactive terminal: prompt `Proceed with push to kanban? [y/N]`
-   - Non-interactive / agent: print preview and exit; **ask the user in chat**, then re-run with **`--yes`**
-   - User declines: unstage and exit without push
-8. Commit: `chore(reports): archive {nightly|release} test report YYYY-MM-DD`
-9. `git push origin <branch>` with `gh auth git-credential`
+7. **Stop** — no commit or push. Tell the user to run `push_kanban_report.py` after review.
 
-Use **`--dry-run`** to preview planned steps only; **`--archive-only`** to copy into `data/` without pushing; **`--yes`** to push immediately after preview (only after explicit user confirmation).
+Use **`--dry-run`** to preview planned steps only; **`--archive-only`** to copy into `data/` without staging.
+
+## Step 2 — confirm + push (`push_kanban_report.py`)
+
+**Only this script** runs `git commit` and `git push`.
+
+1. Build preview from **already staged** files under `data/*_test_report/`.
+2. **Print push preview** again.
+3. **Confirm before push:**
+   - Interactive terminal: prompt `Proceed with git commit and push to kanban? [y/N]`
+   - Non-interactive / agent: print preview and exit with code 3; **ask the user in chat**, then re-run with **`--yes`**
+   - User declines: unstage and exit without push
+4. Commit: `chore(reports): archive {nightly|release} test report YYYY-MM-DD`
+5. `git push origin <branch>` with `gh auth git-credential`
+
+Use **`--dry-run`** to preview only; **`--yes`** to push immediately after preview (**only** after explicit user confirmation in chat).
 
 ## Troubleshooting
 

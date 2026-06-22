@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Archive a generated HTML test report into vllm-omni-kanban and optionally push.
+Archive a generated HTML test report into vllm-omni-kanban and stage for push.
 
 Copies the report into ``data/nightly_test_report/`` or ``data/release_test_report/``
 (with kanban-expected filenames). **Do not commit** ``docs/assets/test_reports/`` — that
 tree is gitignored in kanban; ``mkdocs build`` / ``mkdocs serve`` regenerates it from
 ``data/`` via ``scripts/mkdocs_hooks.py`` → ``sync_test_reports.py``.
 
-Then ``git add`` (data HTML only) / show **push preview** / **user confirm** / ``commit`` / ``push``
-using **GitHub CLI (``gh``)** credentials for pull/push (``gh auth git-credential``).
+Then ``git pull --rebase``, ``git add`` (data HTML only), and print a **push preview**.
+This script does **not** commit or push. After reviewing the preview, run
+``push_kanban_report.py`` separately (it prompts for confirmation before ``git push``).
+
+Uses **GitHub CLI (``gh``)** credentials for pull (``gh auth git-credential``).
 Requires ``gh`` installed and authenticated (``gh auth login`` or ``GH_TOKEN`` / ``GITHUB_TOKEN``).
-Re-run with ``--yes`` after the user confirms (non-interactive sessions always require ``--yes``).
 
 Default remote repo: https://github.com/hsliuustc0106/vllm-omni-kanban
 
@@ -20,6 +22,9 @@ Run from the skill directory after generating a report::
     --report ./nightly-report-buildkite-latest-2026-06-22.html \\
     --kanban-repo-root /path/to/vllm-omni-kanban \\
     --kind nightly
+
+  python scripts/push_kanban_report.py \\
+    --kanban-repo-root /path/to/vllm-omni-kanban
 """
 
 from __future__ import annotations
@@ -99,12 +104,13 @@ class PushCancelledError(RuntimeError):
 
 
 class PushConfirmationRequiredError(RuntimeError):
-    """Non-interactive session: preview printed; re-run with --yes after user confirms."""
+    """Non-interactive session: preview printed; user must confirm via push_kanban_report.py."""
 
     def __init__(self, preview: PushPreview) -> None:
         self.preview = preview
         super().__init__(
-            "Push preview shown. After the user confirms, re-run with --yes to push."
+            "Push preview shown. After the user confirms in chat, run:\n"
+            "  python scripts/push_kanban_report.py --kanban-repo-root <path> --yes"
         )
 
 
@@ -272,6 +278,86 @@ def _format_bytes(size: int) -> str:
     return f"{size / (1024 * 1024):.1f} MiB"
 
 
+def _staged_report_rel_paths(kanban_repo: Path) -> list[str]:
+    proc = _run_git(
+        kanban_repo,
+        "diff",
+        "--cached",
+        "--name-only",
+        check=False,
+    )
+    paths: list[str] = []
+    for raw in (proc.stdout or "").splitlines():
+        rel = raw.strip().replace("\\", "/")
+        if rel.startswith("data/nightly_test_report/") or rel.startswith(
+            "data/release_test_report/"
+        ):
+            paths.append(rel)
+    return paths
+
+
+def infer_plan_from_staged_rel(rel: str) -> ArchivePlan:
+    rel = rel.replace("\\", "/")
+    name = Path(rel).name
+    if "nightly_test_report" in rel:
+        match = NIGHTLY_CANONICAL_RE.match(name)
+        if match:
+            report_date = match.group("date")
+        else:
+            dates = DATE_IN_NAME_RE.findall(name)
+            report_date = (
+                dates[-1] if dates else datetime.now(timezone.utc).date().isoformat()
+            )
+        return ArchivePlan(
+            kind="nightly",
+            report_date=report_date,
+            dest_name=name,
+            dest_rel=Path(rel),
+        )
+
+    match = RELEASE_CANONICAL_RE.match(name) or RELEASE_LOOSE_RE.match(name)
+    if match:
+        report_date = match.group("date")
+    else:
+        dates = DATE_IN_NAME_RE.findall(name)
+        report_date = (
+            dates[-1] if dates else datetime.now(timezone.utc).date().isoformat()
+        )
+    return ArchivePlan(
+        kind="release",
+        report_date=report_date,
+        dest_name=name,
+        dest_rel=Path(rel),
+    )
+
+
+def build_push_preview_from_staged(
+    kanban_repo: Path,
+    *,
+    remote: str = "origin",
+    branch: str | None = None,
+    commit_message: str | None = None,
+) -> PushPreview | None:
+    kanban_repo = kanban_repo.resolve()
+    staged = _staged_report_rel_paths(kanban_repo)
+    if not staged:
+        return None
+
+    plan = infer_plan_from_staged_rel(staged[0])
+    branch = branch or _git_current_branch(kanban_repo)
+    commit_message = commit_message or (
+        f"chore(reports): archive {plan.kind} test report {plan.report_date}"
+    )
+    return _build_push_preview(
+        kanban_repo,
+        plan,
+        remote=remote,
+        branch=branch,
+        commit_message=commit_message,
+        paths=staged,
+    )
+
+
 def _staged_file_details(kanban_repo: Path) -> list[str]:
     proc = _run_git(
         kanban_repo,
@@ -379,7 +465,9 @@ def _confirm_push(preview: PushPreview, *, assume_yes: bool) -> None:
         return
     if sys.stdin.isatty():
         try:
-            answer = input("\nProceed with push to kanban? [y/N]: ").strip().lower()
+            answer = input(
+                "\nProceed with git commit and push to kanban? [y/N]: "
+            ).strip().lower()
         except EOFError:
             answer = ""
         if answer in ("y", "yes"):
@@ -450,45 +538,18 @@ def _prepare_staged_push(
     )
 
 
-def push_archived_report(
-    kanban_repo: Path,
-    plan: ArchivePlan,
+def commit_and_push_staged(
+    preview: PushPreview,
     *,
-    remote: str = "origin",
-    branch: str | None = None,
-    commit_message: str | None = None,
     dry_run: bool = False,
-    skip_pull: bool = False,
-    assume_yes: bool = False,
 ) -> str:
-    branch = branch or _git_current_branch(kanban_repo.resolve())
-    commit_message = commit_message or (
-        f"chore(reports): archive {plan.kind} test report {plan.report_date}"
-    )
-    paths = _git_paths_for_plan(plan)
-
     if dry_run:
         return (
-            f"[dry-run] would verify gh CLI + gh auth status; "
-            f"git -C {kanban_repo} pull --rebase {remote} {branch} (gh credential); "
-            f"git add {' '.join(paths)}; show push preview; confirm; "
-            f"git commit -m {commit_message!r}; "
-            f"git push {remote} {branch} (gh credential)"
+            f"[dry-run] would git commit -m {preview.commit_message!r}; "
+            f"git push {preview.remote} {preview.branch} (gh credential)"
         )
 
-    preview = _prepare_staged_push(
-        kanban_repo,
-        plan,
-        remote=remote,
-        branch=branch,
-        commit_message=commit_message,
-        skip_pull=skip_pull,
-    )
-    if preview is None:
-        return f"No git changes under {', '.join(paths)}; kanban already up to date."
-
-    _confirm_push(preview, assume_yes=assume_yes)
-
+    ensure_gh_authenticated()
     _run_git(
         preview.kanban_repo,
         "-c",
@@ -514,12 +575,12 @@ def push_archived_report(
             f"(via gh credentials): {detail}"
         )
     return (
-        f"Pushed {plan.kind} report {plan.report_date} to "
+        f"Pushed {preview.plan.kind} report {preview.plan.report_date} to "
         f"{preview.remote}/{preview.branch} ({KANBAN_REPO_URL}) using gh CLI credentials."
     )
 
 
-def push_report_to_kanban(
+def prepare_report_for_kanban(
     report_path: Path,
     kanban_repo: Path,
     *,
@@ -531,7 +592,6 @@ def push_report_to_kanban(
     dry_run: bool = False,
     archive_only: bool = False,
     skip_pull: bool = False,
-    assume_yes: bool = False,
 ) -> tuple[ArchivePlan, str]:
     plan = archive_report_to_kanban(
         report_path,
@@ -540,18 +600,40 @@ def push_report_to_kanban(
         report_date=report_date,
     )
     if archive_only:
-        return plan, f"Archived to {kanban_repo / plan.dest_rel} (no git push)."
-    note = push_archived_report(
+        return plan, f"Archived to {kanban_repo / plan.dest_rel} (no git staging)."
+
+    paths = _git_paths_for_plan(plan)
+    branch = branch or _git_current_branch(kanban_repo.resolve())
+    commit_message = commit_message or (
+        f"chore(reports): archive {plan.kind} test report {plan.report_date}"
+    )
+
+    if dry_run:
+        return plan, (
+            f"[dry-run] would verify gh CLI + gh auth status; "
+            f"git -C {kanban_repo} pull --rebase {remote} {branch} (gh credential); "
+            f"git add {' '.join(paths)}; show push preview; "
+            f"then run push_kanban_report.py to confirm, commit, and push"
+        )
+
+    preview = _prepare_staged_push(
         kanban_repo,
         plan,
         remote=remote,
         branch=branch,
         commit_message=commit_message,
-        dry_run=dry_run,
         skip_pull=skip_pull,
-        assume_yes=assume_yes,
     )
-    return plan, note
+    if preview is None:
+        return plan, f"No git changes under {', '.join(paths)}; kanban already up to date."
+
+    print(format_push_preview(preview), flush=True)
+    return plan, (
+        "Staged for commit. Review the preview above.\n"
+        "After confirming, run:\n"
+        "  python scripts/push_kanban_report.py "
+        f"--kanban-repo-root {kanban_repo.resolve()}"
+    )
 
 
 def _default_kanban_repo() -> Path | None:
@@ -562,7 +644,8 @@ def _default_kanban_repo() -> Path | None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Copy an HTML test report into vllm-omni-kanban data/ and push to GitHub."
+            "Copy an HTML test report into vllm-omni-kanban data/, stage it, "
+            "and print a push preview (does not commit or push)."
         ),
     )
     parser.add_argument(
@@ -615,21 +698,12 @@ def main() -> None:
     parser.add_argument(
         "--archive-only",
         action="store_true",
-        help="Copy into kanban data/ only; do not git push.",
+        help="Copy into kanban data/ only; do not stage or push.",
     )
     parser.add_argument(
         "--skip-pull",
         action="store_true",
-        help="Skip git pull --rebase before commit (not recommended).",
-    )
-    parser.add_argument(
-        "--yes",
-        "-y",
-        action="store_true",
-        help=(
-            "Skip interactive confirmation and push immediately after showing preview. "
-            "Use only after the user explicitly confirmed push."
-        ),
+        help="Skip git pull --rebase before staging (not recommended).",
     )
     args = parser.parse_args()
 
@@ -642,7 +716,7 @@ def main() -> None:
         sys.exit(2)
 
     try:
-        plan, note = push_report_to_kanban(
+        plan, note = prepare_report_for_kanban(
             args.report,
             args.kanban_repo_root,
             kind=args.kind,
@@ -653,14 +727,7 @@ def main() -> None:
             dry_run=args.dry_run,
             archive_only=args.archive_only,
             skip_pull=args.skip_pull,
-            assume_yes=args.yes,
         )
-    except PushCancelledError as exc:
-        print(str(exc), file=sys.stderr)
-        sys.exit(0)
-    except PushConfirmationRequiredError as exc:
-        print(str(exc), file=sys.stderr)
-        sys.exit(3)
     except (FileNotFoundError, NotADirectoryError, RuntimeError, ValueError, GhCliRequiredError) as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
