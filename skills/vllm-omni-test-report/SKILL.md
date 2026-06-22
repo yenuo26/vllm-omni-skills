@@ -1,6 +1,6 @@
 ---
 name: vllm-omni-test-report
-description: Two report kinds; **default output is always HTML** unless the user explicitly asks for Markdown (.md). **Release** — `scripts/compose_full_report.py` (**测试结论**, Buildkite metrics, **Test Result** = Common stack + optional `--log-dir-h*` nightly-style summaries + H100/CI block, **Issue tracking** = GitHub `ci-failure` + *local test* in:title, Open bugs); use `--format markdown` only when the user wants .md or `patch_report_*.py`. **Nightly** — `scripts/nightly_local_log_report.py` from local `nightly_jobs` (fetch: vllm-omni-nightly-local) plus optional latest Buildkite scheduled nightly when token is set; use `--markdown-report` / `--to-stdout markdown` only when the user asks for Markdown. Use when generating Buildkite release summaries, parsing local nightly_jobs with CI cross-check, or opening https://buildkite.com/vllm/vllm-omni/builds?branch=main for CI documentation.
+description: Two report kinds; **default output is always HTML** unless the user explicitly asks for Markdown (.md). **Release** — `scripts/compose_full_report.py` (**测试结论**, Buildkite metrics, **Test Result** = Common stack + optional `--log-dir-h*` nightly-style summaries + H100/CI block, **Issue tracking** = GitHub `ci-failure` + *local test* in:title, Open bugs); use `--format markdown` only when the user wants .md or `patch_report_*.py`. **Nightly** — `scripts/nightly_local_log_report.py` from local `nightly_jobs` (fetch: vllm-omni-nightly-local) plus optional latest Buildkite scheduled nightly when token is set; use `--markdown-report` / `--to-stdout markdown` only when the user asks for Markdown. **Archive (opt-in)** — when the user asks to 归档/提交/push, run `scripts/push_report_to_kanban.py` or `--push-to-kanban` to [vllm-omni-kanban](https://github.com/hsliuustc0106/vllm-omni-kanban) (**requires [gh CLI](https://cli.github.com/)**; prompt install if missing). Use when generating Buildkite release summaries, parsing local nightly_jobs with CI cross-check, or opening https://buildkite.com/vllm/vllm-omni/builds?branch=main for CI documentation.
 ---
 
 # vLLM-Omni Test Report
@@ -22,6 +22,41 @@ description: Two report kinds; **default output is always HTML** unless the user
 - **Nightly**: `nightly`, `nightly report`, `nightly_jobs`, `scheduled nightly`, `生成 nightly`, `夜间报告`, `每日报告`.
 - **Release**: `release report`, `test report`, `正式报告`, `发布报告`, `测试报告`.
 - **Markdown opt-in only**: `markdown`, `.md`, `生成 md`, `生成 markdown`.
+- **Archive / push to kanban (opt-in only)**: `归档`, `提交`, `push`, `推送`, `commit`, `kanban`, `upload report`, `发布到 kanban`. **Do not** push unless the user prompt includes one of these (or an explicit equivalent).
+
+### Archive to vllm-omni-kanban (after report is written)
+
+When archive/push intent is present, **after** HTML generation:
+
+1. Verify **`gh --version`** and **`gh auth status`**; if `gh` is missing, **stop** and tell the user to install [GitHub CLI](https://cli.github.com/) (`winget install --id GitHub.cli` on Windows) then `gh auth login`.
+2. Require local clone of [hsliuustc0106/vllm-omni-kanban](https://github.com/hsliuustc0106/vllm-omni-kanban) (`KANBAN_REPO_ROOT` or `--kanban-repo-root`).
+3. Run **`scripts/push_report_to_kanban.py`** or pass **`--push-to-kanban`** on the report command (push uses **`gh auth git-credential`**, not manual git credentials).
+4. **Show push preview** (repo, branch, remote, commit message, staged files, diff stat) and **wait for user confirmation** before push. In a terminal the script prompts `[y/N]`; in agent/non-interactive mode it prints the preview and exits — **ask the user in chat**, then re-run with **`--yes`** / **`--push-yes`** after they confirm.
+5. Confirm push succeeded; report filenames and paths: [references/kanban-report-archive.md](references/kanban-report-archive.md).
+
+```bash
+gh auth status   # required before push
+export KANBAN_REPO_ROOT=/path/to/vllm-omni-kanban
+
+# Nightly (prefer dated output name)
+python scripts/nightly_local_log_report.py \
+  --html-report ./nightly-report-buildkite-latest-YYYY-MM-DD.html \
+  --kanban-repo-root "$KANBAN_REPO_ROOT" \
+  --push-to-kanban
+
+# Release
+python scripts/compose_full_report.py \
+  --out ./vllm-omni-test-report-YYYY-MM-DD.html \
+  --kanban-repo-root "$KANBAN_REPO_ROOT" \
+  --push-to-kanban
+# After user confirms in chat / terminal:
+#   ... --push-to-kanban --push-yes
+# Or standalone: python scripts/push_report_to_kanban.py --report ... --yes
+```
+
+Standalone (report already on disk): `python scripts/push_report_to_kanban.py --report <file.html> --kind nightly|release` (prompts for confirmation; add `--yes` after user confirms).
+
+**Git commit scope:** push **only** the HTML file under `data/nightly_test_report/` or `data/release_test_report/`. **`docs/assets/test_reports/` is gitignored** in kanban — MkDocs regenerates it from `data/` at `mkdocs serve` / `mkdocs build`; **never** `git add` that directory. Details: [references/kanban-report-archive.md](references/kanban-report-archive.md).
 
 ### Nightly Quick Path
 
@@ -147,6 +182,7 @@ Generate a **human-readable test report** ordered as:
 - User wants to summarize failures, flaky steps, or duration from Buildkite
 - User needs **Common stack** or optional **H200/H800/A100** nightly log summaries in the **release** report — set **`--log-dir-h*`** on `compose_full_report.py` when logs are available
 - User asks for **nightly** report from **local** `nightly_jobs` — **default to HTML** (`nightly_local_log_report.py --html-report`); Markdown **only** if they explicitly ask (`fetch` in vllm-omni-nightly-local)
+- User asks to **归档 / 提交 / push** the report to [vllm-omni-kanban](https://github.com/hsliuustc0106/vllm-omni-kanban) — run [references/kanban-report-archive.md](references/kanban-report-archive.md) **after** HTML is written
 
 ## Definitions
 
@@ -366,6 +402,7 @@ Hand-authored or review-only; automation emits the same sections in HTML by defa
 - HTML from Markdown (release): [scripts/release_md_to_html.py](scripts/release_md_to_html.py) (used by compose_full_report)
 - **Nightly** log tree / pytest parsing: [references/nightly-local-log-layout.md](references/nightly-local-log-layout.md) (fetch off cluster: [vllm-omni-nightly-local](../vllm-omni-nightly-local/SKILL.md))
 - Buildkite performance summary from kanban assets: [scripts/kanban_assets_perf_summary.py](scripts/kanban_assets_perf_summary.py)
+- Archive HTML reports to kanban + **gh** push: [references/kanban-report-archive.md](references/kanban-report-archive.md), [scripts/push_report_to_kanban.py](scripts/push_report_to_kanban.py)
 
 ## Cursor copy
 

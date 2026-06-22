@@ -89,8 +89,31 @@ _SVG_CHART_BARS = (
     '<line x1="6" y1="20" x2="6" y2="14"/>'
 )
 
-VLLM_OMNI_REPO = "https://github.com/vllm-project/vllm-omni"
+VLLM_OMNI_REPO = os.environ.get(
+    "VLLM_OMNI_ISSUE_REPO", "https://github.com/vllm-project/vllm-omni"
+).strip().rstrip("/")
 VLLM_OMNI_BUG_ISSUE_TEMPLATE = "400-bug-report.yml"
+# GitHub issue form field ids — must match explicit `id` in vllm-omni
+# `.github/ISSUE_TEMPLATE/400-bug-report.yml` (URL query prefill only works with `id`).
+VLLM_OMNI_BUG_ENV_FIELD_ID = "current-environment"
+VLLM_OMNI_BUG_ENV_COLLECT_PLACEHOLDER = "Your output of `python collect_env.py` here"
+VLLM_OMNI_BUG_ENV_DEFAULT_VALUE = (
+    "<details>\n"
+    "<summary>The output of <code>python collect_env.py</code></summary>\n\n"
+    "```text\n"
+    f"{VLLM_OMNI_BUG_ENV_COLLECT_PLACEHOLDER}\n"
+    "```\n\n"
+    "</details>"
+)
+VLLM_OMNI_BUG_ENV_CI_REPLACEMENT = "ci env"
+VLLM_OMNI_BUG_CODE_VERSION_FIELD_ID = "code-version"
+
+
+def _vllm_omni_bug_env_ci_prefill() -> str:
+    return VLLM_OMNI_BUG_ENV_DEFAULT_VALUE.replace(
+        VLLM_OMNI_BUG_ENV_COLLECT_PLACEHOLDER,
+        VLLM_OMNI_BUG_ENV_CI_REPLACEMENT,
+    )
 
 # Total raw log bytes (per failing local job) embeddable in HTML; larger logs get a notice + paths only.
 FULL_LOG_EMBED_MAX_BYTES = 2 * 1024 * 1024
@@ -221,7 +244,7 @@ def _github_issue_button_cell() -> str:
 
 
 def _github_issue_modal_and_script() -> str:
-    """Modal + client script: open GitHub bug template, prefilled title; body copied to match upstream form."""
+    """Modal + client script: open GitHub bug template with prefilled title; CI rows also prefill env field."""
     tmpl_url = f"{VLLM_OMNI_REPO}/blob/main/.github/ISSUE_TEMPLATE/{VLLM_OMNI_BUG_ISSUE_TEMPLATE}"
     issue_new = f"{VLLM_OMNI_REPO}/issues/new"
     return f"""
@@ -237,8 +260,10 @@ def _github_issue_modal_and_script() -> str:
       (<code>{html.escape(VLLM_OMNI_BUG_ISSUE_TEMPLATE)}</code>).
       For <strong>Buildkite</strong> rows, the body uses <code>ci env</code> and tries to fill <strong>vllm / vllm-omni</strong>
       versions by scanning the step log; paste anything missing from the build log if needed.
-      Click <strong>Open GitHub</strong> (template and title are pre-filled), then paste the Markdown below into
-      <strong>Describe the bug</strong>. Redact secrets before submitting.</p>
+      Click <strong>Open GitHub</strong> (template and title are pre-filled; <strong>Buildkite</strong> rows also
+      pre-fill <strong>Your current environment</strong> and <strong>Your code version</strong> when the upstream
+      template defines field ids <code>current-environment</code> / <code>code-version</code>).
+      Paste the Markdown below into <strong>Describe the bug</strong>. Redact secrets before submitting.</p>
     <textarea id="gh-issue-body-text" class="gh-issue-textarea" rows="20" spellcheck="false"></textarea>
     <footer class="gh-modal-actions">
       <button type="button" class="btn-gh-copy" id="gh-issue-copy">Copy body</button>
@@ -257,6 +282,46 @@ def _github_issue_modal_and_script() -> str:
   if (!modal || !ta || !openA || !copyBtn || !closeBtn || !backdrop) return;
   var issueBase = {json.dumps(issue_new)};
   var bugTemplate = {json.dumps(VLLM_OMNI_BUG_ISSUE_TEMPLATE)};
+  var issueEnvFieldId = {json.dumps(VLLM_OMNI_BUG_ENV_FIELD_ID)};
+  var issueEnvCiValue = {json.dumps(_vllm_omni_bug_env_ci_prefill())};
+  var issueCodeVersionFieldId = {json.dumps(VLLM_OMNI_BUG_CODE_VERSION_FIELD_ID)};
+
+  function resolveVersionLines(d) {{
+    if (d.env === "ci") {{
+      var vllmLine = (d.vllmVer && d.vllmVer.trim()) ? d.vllmVer.trim() : "(not found in Buildkite step log)";
+      var omniLine;
+      if (d.omniVer && d.omniVer.trim()) {{
+        omniLine = d.omniVer.trim();
+      }} else if (d.buildCommit && d.buildCommit.trim()) {{
+        omniLine = d.buildCommit.trim();
+      }} else {{
+        omniLine = "(not found in Buildkite step log)";
+      }}
+      return {{ vllmLine: vllmLine, omniLine: omniLine }};
+    }}
+    return {{ vllmLine: "(pending)", omniLine: "(pending)" }};
+  }}
+
+  function issueCodeVersionPrefill(d) {{
+    if (d.env !== "ci") return null;
+    var ver = resolveVersionLines(d);
+    return [
+      "<details>",
+      "<summary>The commit id or version of vllm</summary>",
+      "",
+      "```text",
+      ver.vllmLine,
+      "```",
+      "</details>",
+      "<details>",
+      "<summary>The commit id or version of vllm-omni</summary>",
+      "",
+      "```text",
+      ver.omniLine,
+      "```",
+      "</details>",
+    ].join("\\n");
+  }}
 
   function gatherRow(btn) {{
     var tr = btn.closest("tr");
@@ -320,19 +385,9 @@ def _github_issue_modal_and_script() -> str:
     }}
 
     var vllmLine, omniLine;
-    if (d.env === "ci") {{
-      vllmLine = (d.vllmVer && d.vllmVer.trim()) ? d.vllmVer.trim() : "(not found in Buildkite step log)";
-      if (d.omniVer && d.omniVer.trim()) {{
-        omniLine = d.omniVer.trim();
-      }} else if (d.buildCommit && d.buildCommit.trim()) {{
-        omniLine = d.buildCommit.trim();
-      }} else {{
-        omniLine = "(not found in Buildkite step log)";
-      }}
-    }} else {{
-      vllmLine = "(pending)";
-      omniLine = "(pending)";
-    }}
+    var ver = resolveVersionLines(d);
+    vllmLine = ver.vllmLine;
+    omniLine = ver.omniLine;
 
     return [
       envSection,
@@ -382,6 +437,13 @@ def _github_issue_modal_and_script() -> str:
     var u = new URL(issueBase);
     u.searchParams.set("template", bugTemplate);
     u.searchParams.set("title", issueTitle(d));
+    if (d.env === "ci") {{
+      u.searchParams.set(issueEnvFieldId, issueEnvCiValue);
+      var codeVer = issueCodeVersionPrefill(d);
+      if (codeVer) {{
+        u.searchParams.set(issueCodeVersionFieldId, codeVer);
+      }}
+    }}
     openA.href = u.toString();
     modal.hidden = false;
     modal.setAttribute("aria-hidden", "false");
@@ -2659,6 +2721,22 @@ def main() -> None:
         default="Nightly local test report",
         help="Report title.",
     )
+    parser.add_argument(
+        "--push-to-kanban",
+        action="store_true",
+        help=(
+            "After --html-report, archive to kanban data/nightly_test_report/ and push via gh CLI "
+            "after user confirmation (requires --kanban-repo-root or $KANBAN_REPO_ROOT)."
+        ),
+    )
+    parser.add_argument(
+        "--push-yes",
+        action="store_true",
+        help=(
+            "With --push-to-kanban: skip confirmation and push after preview "
+            "(use only after the user explicitly confirmed)."
+        ),
+    )
     args = parser.parse_args()
 
     if args.html_report and args.markdown_report:
@@ -2717,6 +2795,39 @@ def main() -> None:
                 kanban_cfg=kanban_cfg,
                 local_perf_cfg=local_perf_cfg,
             )
+        if args.push_to_kanban:
+            from push_report_to_kanban import (
+                GhCliRequiredError,
+                PushCancelledError,
+                PushConfirmationRequiredError,
+                push_report_to_kanban,
+            )
+
+            kanban_root = kanban_cfg.repo_root
+            if kanban_root is None:
+                print(
+                    " --push-to-kanban requires --kanban-repo-root or KANBAN_REPO_ROOT.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            try:
+                plan, note = push_report_to_kanban(
+                    out,
+                    kanban_root,
+                    kind="nightly",
+                    assume_yes=args.push_yes,
+                )
+            except PushCancelledError as exc:
+                print(str(exc), file=sys.stderr)
+                sys.exit(0)
+            except PushConfirmationRequiredError as exc:
+                print(str(exc), file=sys.stderr)
+                sys.exit(3)
+            except (FileNotFoundError, NotADirectoryError, RuntimeError, ValueError, GhCliRequiredError) as exc:
+                print(str(exc), file=sys.stderr)
+                sys.exit(1)
+            print(f"Kanban archive: {kanban_root / plan.dest_rel}")
+            print(note)
     elif args.markdown_report:
         out = args.markdown_report
         out.parent.mkdir(parents=True, exist_ok=True)

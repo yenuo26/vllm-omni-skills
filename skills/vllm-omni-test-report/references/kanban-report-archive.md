@@ -1,0 +1,110 @@
+# Archive test reports to vllm-omni-kanban
+
+Target repo: [hsliuustc0106/vllm-omni-kanban](https://github.com/hsliuustc0106/vllm-omni-kanban)
+
+## When to run
+
+Only after the user prompt includes archive/push intent, e.g. **归档**, **提交**, **push**, **推送**, **commit**, **kanban**, **upload report**.
+
+## Prerequisites
+
+- **[GitHub CLI (`gh`)](https://cli.github.com/)** installed and authenticated (`gh auth login`, or `GH_TOKEN` / `GITHUB_TOKEN` with `repo` scope). If `gh` is missing, stop and ask the user to install it first (do not fall back to raw `git push` without `gh`).
+- Local git clone of `vllm-omni-kanban` with push access to `origin` (typically `main`).
+- `KANBAN_REPO_ROOT=/path/to/vllm-omni-kanban` or pass `--kanban-repo-root`.
+- Generated report must be **HTML** (MkDocs site reads HTML snapshots).
+
+### Install `gh` (if not present)
+
+```bash
+gh --version   # must succeed before archive push
+
+# Windows
+winget install --id GitHub.cli
+
+# macOS
+brew install gh
+
+# After install
+gh auth login
+```
+
+Agents: if `gh --version` fails, tell the user to install `gh` and run `gh auth login` before continuing.
+
+## What to commit (important)
+
+**Only commit HTML under `data/` — never add files under `docs/assets/test_reports/`.**
+
+In [vllm-omni-kanban `.gitignore`](https://github.com/hsliuustc0106/vllm-omni-kanban/blob/main/.gitignore):
+
+```gitignore
+# Generated test report copies for MkDocs (do not commit)
+docs/assets/test_reports/
+```
+
+| Report kind | **Commit this path only** | Do **not** commit |
+|-------------|---------------------------|-------------------|
+| **nightly** | `data/nightly_test_report/nightly-report-buildkite-latest-YYYY-MM-DD.html` | `docs/assets/test_reports/**` |
+| **release** | `data/release_test_report/vllm-omni-release-test-report-YYYY-MM-DD.html` | `docs/assets/test_reports/**` |
+
+Kanban **MkDocs** (`mkdocs serve` / `mkdocs build`) runs `scripts/mkdocs_hooks.py` → `scripts/sync_test_reports.py`, which **locally** copies `data/*_test_report/` into `docs/assets/test_reports/` for the Reports page ([docs/reports.md](https://github.com/hsliuustc0106/vllm-omni-kanban/blob/main/docs/reports.md)). That output is gitignored and regenerated at build time — **do not** `git add` it during archive push.
+
+## Automated push
+
+From **`skills/vllm-omni-test-report/`**:
+
+```bash
+gh auth status   # prerequisite
+export KANBAN_REPO_ROOT=/path/to/vllm-omni-kanban
+
+# After nightly HTML report
+python scripts/push_report_to_kanban.py \
+  --report ./nightly-report-buildkite-latest-YYYY-MM-DD.html \
+  --kind nightly
+
+# After release HTML report
+python scripts/push_report_to_kanban.py \
+  --report ./vllm-omni-test-report-YYYY-MM-DD.html \
+  --kind release
+```
+
+Or append **`--push-to-kanban`** to the report generator (requires `--kanban-repo-root` or `$KANBAN_REPO_ROOT`):
+
+```bash
+python scripts/nightly_local_log_report.py \
+  --html-report ./nightly-report-buildkite-latest-YYYY-MM-DD.html \
+  --kanban-repo-root "$KANBAN_REPO_ROOT" \
+  --push-to-kanban
+
+python scripts/compose_full_report.py \
+  --out ./vllm-omni-test-report-YYYY-MM-DD.html \
+  --kanban-repo-root "$KANBAN_REPO_ROOT" \
+  --push-to-kanban
+```
+
+## Push behavior (`push_report_to_kanban.py`)
+
+Uses **`gh`** for GitHub authentication; local commit still uses `git`:
+
+1. Verify **`gh`** is installed; else exit with install instructions.
+2. Verify **`gh auth status`** (or valid `GH_TOKEN` / `GITHUB_TOKEN`).
+3. Copy report HTML into `data/nightly_test_report/` or `data/release_test_report/` (canonical filename).
+4. `git pull --rebase origin <branch>` with `gh auth git-credential` (unless `--skip-pull`).
+5. `git add` **only** the new/updated file under `data/*_test_report/` (not `docs/assets/test_reports/`).
+6. **Print push preview** (repository, remote, branch, commit message, staged file list with sizes, `name-status`, `diff --stat`).
+7. **Confirm before push:**
+   - Interactive terminal: prompt `Proceed with push to kanban? [y/N]`
+   - Non-interactive / agent: print preview and exit; **ask the user in chat**, then re-run with **`--yes`**
+   - User declines: unstage and exit without push
+8. Commit: `chore(reports): archive {nightly|release} test report YYYY-MM-DD`
+9. `git push origin <branch>` with `gh auth git-credential`
+
+Use **`--dry-run`** to preview planned steps only; **`--archive-only`** to copy into `data/` without pushing; **`--yes`** to push immediately after preview (only after explicit user confirmation).
+
+## Troubleshooting
+
+- **`gh` not found** — install from [cli.github.com](https://cli.github.com/); Windows: `winget install --id GitHub.cli`.
+- **`gh auth status` failed** — run `gh auth login` or export `GH_TOKEN` with `repo` scope.
+- **Not a git repository** — clone [vllm-omni-kanban](https://github.com/hsliuustc0106/vllm-omni-kanban) and set `KANBAN_REPO_ROOT`.
+- **push failed** — resolve rebase conflicts manually in the kanban checkout; re-run after `gh auth status` succeeds.
+- **Wrong filename** — pass `--date YYYY-MM-DD` and `--kind nightly|release` explicitly.
+- **Reports page empty locally** — run `mkdocs serve` in kanban; hooks sync `data/` → `docs/assets/test_reports/` at build time (no git commit needed).

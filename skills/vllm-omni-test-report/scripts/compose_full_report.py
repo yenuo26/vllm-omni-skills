@@ -1084,6 +1084,35 @@ def main() -> None:
         default=None,
         help="Optional. Log root for **Test Result → A100** (same layout as --log-dir-h200).",
     )
+    parser.add_argument(
+        "--kanban-repo-root",
+        type=Path,
+        default=(
+            Path(os.environ["KANBAN_REPO_ROOT"]).resolve()
+            if (os.environ.get("KANBAN_REPO_ROOT") or "").strip()
+            else None
+        ),
+        help=(
+            "Local vllm-omni-kanban checkout. Required with --push-to-kanban; "
+            "default: $KANBAN_REPO_ROOT."
+        ),
+    )
+    parser.add_argument(
+        "--push-to-kanban",
+        action="store_true",
+        help=(
+            "After writing the report, archive HTML to kanban data/release_test_report/ "
+            "and push via gh CLI after user confirmation (see references/kanban-report-archive.md)."
+        ),
+    )
+    parser.add_argument(
+        "--push-yes",
+        action="store_true",
+        help=(
+            "With --push-to-kanban: skip confirmation and push after preview "
+            "(use only after the user explicitly confirmed)."
+        ),
+    )
     args = parser.parse_args()
 
     skill_dir = Path(__file__).resolve().parent.parent
@@ -1309,6 +1338,49 @@ def main() -> None:
             encoding="utf-8",
         )
     print(f"Wrote {out_path}")
+
+    if args.push_to_kanban:
+        from push_report_to_kanban import (
+            GhCliRequiredError,
+            PushCancelledError,
+            PushConfirmationRequiredError,
+            push_report_to_kanban,
+        )
+
+        kanban_root = args.kanban_repo_root
+        if kanban_root is None:
+            env_root = (os.environ.get("KANBAN_REPO_ROOT") or "").strip()
+            kanban_root = Path(env_root).resolve() if env_root else None
+        if kanban_root is None:
+            print(
+                " --push-to-kanban requires --kanban-repo-root or KANBAN_REPO_ROOT.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        if args.format != "html":
+            print(
+                " --push-to-kanban requires HTML output (default --format html).",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        try:
+            plan, note = push_report_to_kanban(
+                out_path,
+                kanban_root,
+                kind="release",
+                assume_yes=args.push_yes,
+            )
+        except PushCancelledError as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(0)
+        except PushConfirmationRequiredError as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(3)
+        except (FileNotFoundError, NotADirectoryError, RuntimeError, ValueError, GhCliRequiredError) as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(1)
+        print(f"Kanban archive: {kanban_root / plan.dest_rel}")
+        print(note)
 
 
 if __name__ == "__main__":
