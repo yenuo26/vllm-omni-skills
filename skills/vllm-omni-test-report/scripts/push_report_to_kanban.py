@@ -178,11 +178,23 @@ def _run_gh(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
 
 
 def _git_current_branch(repo: Path) -> str:
-    proc = _run_git(repo, "branch", "--show-current")
+    proc = _run_git(repo, "rev-parse", "--abbrev-ref", "HEAD")
     branch = (proc.stdout or "").strip()
-    if not branch:
+    if not branch or branch == "HEAD":
         raise RuntimeError(f"Unable to determine current branch in {repo}")
     return branch
+
+
+def _git_commit_identity_args(repo: Path) -> list[str]:
+    """``git -c`` overrides only for identity fields not configured in the repo."""
+    name = _run_git(repo, "config", "--get", "user.name", check=False).stdout.strip()
+    email = _run_git(repo, "config", "--get", "user.email", check=False).stdout.strip()
+    args: list[str] = []
+    if not name:
+        args.extend(["-c", "user.name=vllm-omni-test-report"])
+    if not email:
+        args.extend(["-c", "user.email=vllm-omni-test-report@users.noreply.github.com"])
+    return args
 
 
 def _git_remote_url(repo: Path, remote: str) -> str:
@@ -402,12 +414,14 @@ def build_push_preview_from_staged(
     )
 
 
-def _staged_file_details(kanban_repo: Path) -> list[str]:
+def _staged_file_details(kanban_repo: Path, paths: list[str]) -> list[str]:
     proc = _run_git(
         kanban_repo,
         "diff",
         "--cached",
         "--name-only",
+        "--",
+        *paths,
         check=False,
     )
     lines: list[str] = []
@@ -438,6 +452,8 @@ def _build_push_preview(
         "diff",
         "--cached",
         "--name-status",
+        "--",
+        *paths,
         check=False,
     )
     diff_stat_proc = _run_git(
@@ -445,6 +461,8 @@ def _build_push_preview(
         "diff",
         "--cached",
         "--stat",
+        "--",
+        *paths,
         check=False,
     )
     return PushPreview(
@@ -457,7 +475,7 @@ def _build_push_preview(
         paths=paths,
         name_status=(name_status_proc.stdout or "").strip() or "(no staged diff)",
         diff_stat=(diff_stat_proc.stdout or "").strip() or "(no diff stat)",
-        file_details=_staged_file_details(kanban_repo),
+        file_details=_staged_file_details(kanban_repo, paths),
     )
 
 
@@ -546,7 +564,7 @@ def format_push_confirmation_request(preview: PushPreview) -> str:
 
 
 def _unstage_paths(kanban_repo: Path, paths: list[str]) -> None:
-    _run_git(kanban_repo, "restore", "--staged", *paths, check=False)
+    _run_git(kanban_repo, "reset", "HEAD", "--", *paths, check=False)
 
 
 def _confirm_push(preview: PushPreview, *, assume_yes: bool) -> None:
@@ -634,22 +652,18 @@ def commit_and_push_staged(
     dry_run: bool = False,
 ) -> str:
     if dry_run:
+        path_list = " ".join(preview.paths)
         return (
-            f"[dry-run] would git commit -m {preview.commit_message!r}; "
+            f"[dry-run] would git commit -m {preview.commit_message!r} -- {path_list}; "
             f"git push {preview.remote} {preview.branch} (gh credential)"
         )
 
     ensure_gh_authenticated()
-    _run_git(
-        preview.kanban_repo,
-        "-c",
-        "user.name=vllm-omni-test-report",
-        "-c",
-        "user.email=vllm-omni-test-report@users.noreply.github.com",
-        "commit",
-        "-m",
-        preview.commit_message,
+    commit_args = _git_commit_identity_args(preview.kanban_repo)
+    commit_args.extend(
+        ["commit", "-m", preview.commit_message, "--", *preview.paths]
     )
+    _run_git(preview.kanban_repo, *commit_args)
     push = _run_git(
         preview.kanban_repo,
         "push",
