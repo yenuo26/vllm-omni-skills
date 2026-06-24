@@ -19,6 +19,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from laptop_path_defaults import DEFAULT_KANBAN_REPO_ROOT_DISPLAY
 from push_report_to_kanban import (
     KANBAN_REPO_URL,
     GhCliRequiredError,
@@ -28,6 +29,7 @@ from push_report_to_kanban import (
     _default_kanban_repo,
     build_push_preview_from_staged,
     commit_and_push_staged,
+    format_push_confirmation_request,
     format_push_preview,
 )
 
@@ -36,6 +38,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Commit and push staged test reports in vllm-omni-kanban "
+            f"({KANBAN_REPO_URL}) "
             "(requires prior push_report_to_kanban.py staging)."
         ),
     )
@@ -44,8 +47,8 @@ def main() -> None:
         type=Path,
         default=_default_kanban_repo(),
         help=(
-            "Local checkout of vllm-omni-kanban "
-            f"({KANBAN_REPO_URL}). Default: $KANBAN_REPO_ROOT."
+            f"Local checkout of {KANBAN_REPO_URL}. Default: $KANBAN_REPO_ROOT or "
+            f"{DEFAULT_KANBAN_REPO_ROOT_DISPLAY}."
         ),
     )
     parser.add_argument(
@@ -66,7 +69,15 @@ def main() -> None:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print push preview and planned commit/push without executing.",
+        help="Print planned git actions without commit/push.",
+    )
+    parser.add_argument(
+        "--preview-only",
+        action="store_true",
+        help=(
+            "Print the full push preview (staged files, diff stat) and exit. "
+            "Use before asking the user to confirm push."
+        ),
     )
     parser.add_argument(
         "--yes",
@@ -78,14 +89,6 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
-
-    if args.kanban_repo_root is None:
-        print(
-            "Set --kanban-repo-root or export KANBAN_REPO_ROOT "
-            f"to a local clone of {KANBAN_REPO_URL}.",
-            file=sys.stderr,
-        )
-        sys.exit(2)
 
     kanban_repo = args.kanban_repo_root.resolve()
     if not (kanban_repo / ".git").exists():
@@ -107,17 +110,21 @@ def main() -> None:
         print(
             "No staged report under data/nightly_test_report/ or "
             "data/release_test_report/.\n"
-            "Run push_report_to_kanban.py first to copy and stage the report.",
+            "Run push_report_to_kanban.py first to copy and stage the report "
+            "(and optional data/local_nightly_raw/manual_*).",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    if args.dry_run:
-        print(format_push_preview(preview))
-        print(
-            commit_and_push_staged(preview, dry_run=True),
-            flush=True,
-        )
+    if args.preview_only or args.dry_run:
+        if args.preview_only:
+            print(format_push_confirmation_request(preview), flush=True)
+        else:
+            print(format_push_preview(preview))
+            print(
+                commit_and_push_staged(preview, dry_run=True),
+                flush=True,
+            )
         return
 
     try:
@@ -127,7 +134,7 @@ def main() -> None:
         print(str(exc), file=sys.stderr)
         sys.exit(0)
     except PushConfirmationRequiredError as exc:
-        print(str(exc), file=sys.stderr)
+        print(str(exc), flush=True)
         sys.exit(3)
     except (RuntimeError, GhCliRequiredError) as exc:
         print(str(exc), file=sys.stderr)
