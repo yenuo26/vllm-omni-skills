@@ -48,6 +48,7 @@ export VLLM_ALLOW_LONG_MAX_MODEL_LEN="1"
 2. User mentions **H800** → [nightly-local-h800.md](nightly-local-h800.md).
 3. Neither → ask **H200** vs **H800**.
 4. **Before run:** show default **`REPO_ROOT`**, **`HF_HOME`**, **`CUDA_VISIBLE_DEVICES`** (`0,1,2,3`) and **ask user to confirm** — [Confirm run defaults](nightly-local-environment.md#confirm-run-defaults-with-user).
+5. **After connect + `cd "$REPO_ROOT"`:** ask whether to **`git pull`** — [Git pull before run](nightly-local-environment.md#git-pull-before-run-confirm-with-user).
 
 ## 1. Connect and run (interactive)
 
@@ -66,7 +67,10 @@ unset HF_HUB_CACHE
 unset TRANSFORMERS_CACHE
 export VLLM_ALLOW_LONG_MAX_MODEL_LEN="1"
 export CUDA_VISIBLE_DEVICES=0,1,2,3
-cd "$REPO_ROOT" && bash tools/nightly/run_nightly_jobs.sh --test-type local
+cd "$REPO_ROOT"
+# Ask user: git pull? If yes:
+# git pull
+bash tools/nightly/run_nightly_jobs.sh --test-type local
 ```
 
 Model-filtered local (user says **local for model `xxxx`**):

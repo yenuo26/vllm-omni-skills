@@ -7,6 +7,8 @@ from pathlib import Path
 LOCAL_NIGHTLY_RAW = Path("data") / "local_nightly_raw"
 LAST_MANUAL_MARKER = LOCAL_NIGHTLY_RAW / ".last_manual_dir"
 MANUAL_DIR_PREFIX = "manual_"
+HUNYUAN_NIGHTLY_SOURCE_LOG = "local_pytest_hunyuan_image.log"
+HUNYUAN_MANUAL_DEST_LOG = "test_hunyuan_image3.log"
 
 
 def local_nightly_raw_root(kanban_repo: Path) -> Path:

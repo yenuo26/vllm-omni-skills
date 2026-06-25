@@ -26,6 +26,8 @@ from datetime import datetime
 from pathlib import Path
 
 from kanban_local_nightly_raw import (
+    HUNYUAN_MANUAL_DEST_LOG,
+    HUNYUAN_NIGHTLY_SOURCE_LOG,
     LOCAL_NIGHTLY_RAW,
     clear_last_manual_marker,
     write_last_manual_marker,
@@ -48,11 +50,6 @@ from local_perf_results import (
     local_perf_result_files,
     resolve_local_perf_result_dir,
 )
-
-# ``nightly_jobs`` → ``manual_*``: only this log is archived (fixed rename).
-HUNYUAN_NIGHTLY_SOURCE_LOG = "local_pytest_hunyuan_image.log"
-HUNYUAN_MANUAL_DEST_LOG = "test_hunyuan_image3.log"
-
 
 @dataclass
 class PrepareResult:

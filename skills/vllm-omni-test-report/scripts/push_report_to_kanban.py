@@ -35,7 +35,7 @@ import re
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from shutil import copy2
@@ -45,6 +45,8 @@ from laptop_path_defaults import (
     resolve_kanban_repo_root,
 )
 from kanban_local_nightly_raw import (
+    HUNYUAN_MANUAL_DEST_LOG,
+    HUNYUAN_NIGHTLY_SOURCE_LOG,
     LOCAL_NIGHTLY_RAW,
     manual_dir_rel,
     resolve_manual_dir_for_archive,
@@ -102,6 +104,7 @@ class PushPreview:
     name_status: str
     diff_stat: str
     file_details: list[str]
+    staging_warnings: list[str] = field(default_factory=list)
 
 
 class GhCliRequiredError(RuntimeError):
@@ -291,6 +294,73 @@ def _git_paths_for_plan(plan: ArchivePlan) -> list[str]:
     return paths
 
 
+def _staged_rel_paths_scoped(kanban_repo: Path, scope_paths: list[str]) -> set[str]:
+    if not scope_paths:
+        return set()
+    proc = _run_git(
+        kanban_repo,
+        "diff",
+        "--cached",
+        "--name-only",
+        "--",
+        *scope_paths,
+        check=False,
+    )
+    return {
+        raw.strip().replace("\\", "/")
+        for raw in (proc.stdout or "").splitlines()
+        if raw.strip()
+    }
+
+
+def _git_add_archive_paths(kanban_repo: Path, plan: ArchivePlan) -> None:
+    """Stage report HTML and ``manual_*`` (force-add raw dir so ``*.log`` is not skipped)."""
+    paths = _git_paths_for_plan(plan)
+    _run_git(kanban_repo, "add", paths[0])
+    if plan.local_nightly_manual_rel is not None:
+        manual = str(plan.local_nightly_manual_rel).replace("\\", "/")
+        _run_git(kanban_repo, "add", "-f", manual)
+
+
+def _manual_staging_warnings(
+    kanban_repo: Path,
+    plan: ArchivePlan,
+    staged_rels: set[str],
+) -> list[str]:
+    if plan.local_nightly_manual_rel is None:
+        return []
+    manual_dir = kanban_repo / plan.local_nightly_manual_rel
+    if not manual_dir.is_dir():
+        return [
+            f"Warning: {plan.local_nightly_manual_rel.as_posix()} not found on disk "
+            "(run prepare_kanban_before_report.py first)."
+        ]
+
+    warnings: list[str] = []
+    log_rel = f"{plan.local_nightly_manual_rel.as_posix()}/{HUNYUAN_MANUAL_DEST_LOG}"
+    log_path = manual_dir / HUNYUAN_MANUAL_DEST_LOG
+    if log_path.is_file():
+        if log_rel not in staged_rels:
+            warnings.append(
+                f"Warning: {log_rel} is on disk but not staged "
+                f"(kanban .gitignore may block *.log; archive uses git add -f)."
+            )
+    else:
+        warnings.append(
+            f"Warning: {log_rel} missing — prep should copy "
+            f"logs/nightly_jobs/{HUNYUAN_NIGHTLY_SOURCE_LOG} "
+            f"→ {HUNYUAN_MANUAL_DEST_LOG}."
+        )
+
+    for path in sorted(manual_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(kanban_repo).as_posix()
+        if rel not in staged_rels and rel != log_rel:
+            warnings.append(f"Warning: on disk but not staged: {rel}")
+    return warnings
+
+
 def _default_commit_message(plan: ArchivePlan) -> str:
     msg = f"chore(reports): archive {plan.kind} test report {plan.report_date}"
     if plan.local_nightly_manual_rel is not None:
@@ -404,13 +474,17 @@ def build_push_preview_from_staged(
     )
     branch = branch or _git_current_branch(kanban_repo)
     commit_message = commit_message or _default_commit_message(plan)
+    paths = _git_paths_for_plan(plan)
+    staged_rels = _staged_rel_paths_scoped(kanban_repo, paths)
+    warnings = _manual_staging_warnings(kanban_repo, plan, staged_rels)
     return _build_push_preview(
         kanban_repo,
         plan,
         remote=remote,
         branch=branch,
         commit_message=commit_message,
-        paths=_git_paths_for_plan(plan),
+        paths=paths,
+        staging_warnings=warnings,
     )
 
 
@@ -446,6 +520,7 @@ def _build_push_preview(
     branch: str,
     commit_message: str,
     paths: list[str],
+    staging_warnings: list[str] | None = None,
 ) -> PushPreview:
     name_status_proc = _run_git(
         kanban_repo,
@@ -476,6 +551,7 @@ def _build_push_preview(
         name_status=(name_status_proc.stdout or "").strip() or "(no staged diff)",
         diff_stat=(diff_stat_proc.stdout or "").strip() or "(no diff stat)",
         file_details=_staged_file_details(kanban_repo, paths),
+        staging_warnings=staging_warnings or [],
     )
 
 
@@ -511,6 +587,10 @@ def format_push_preview(preview: PushPreview) -> str:
         lines.extend(preview.file_details)
     else:
         lines.append("  (none)")
+    if preview.staging_warnings:
+        lines.append("")
+        lines.append("Staging warnings:")
+        lines.extend(f"  {w}" for w in preview.staging_warnings)
     lines.extend(
         [
             "",
@@ -631,10 +711,13 @@ def _prepare_staged_push(
                 f"git pull --rebase {remote} {branch} failed: {detail}"
             )
 
-    _run_git(kanban_repo, "add", *paths)
+    _git_add_archive_paths(kanban_repo, plan)
     status = _run_git(kanban_repo, "status", "--porcelain", *paths, check=False)
     if not (status.stdout or "").strip():
         return None
+
+    staged_rels = _staged_rel_paths_scoped(kanban_repo, paths)
+    warnings = _manual_staging_warnings(kanban_repo, plan, staged_rels)
 
     return _build_push_preview(
         kanban_repo,
@@ -643,6 +726,7 @@ def _prepare_staged_push(
         branch=branch,
         commit_message=commit_message,
         paths=paths,
+        staging_warnings=warnings,
     )
 
 

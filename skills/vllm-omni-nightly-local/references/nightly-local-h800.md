@@ -36,6 +36,7 @@ export VLLM_ALLOW_LONG_MAX_MODEL_LEN="1"
 2. User mentions **H200** → [nightly-local-h200.md](nightly-local-h200.md) only.
 3. Neither → ask which machine type (**H200** vs **H800**).
 4. **Before run:** show default **`REPO_ROOT`**, **`HF_HOME`**, and **`CUDA_VISIBLE_DEVICES`** strategy ( **`X`** + **`nvidia-smi`**, explicit list, or Slurm) and **ask user to confirm** — [Confirm run defaults](nightly-local-environment.md#confirm-run-defaults-with-user).
+5. **After connect + `cd "$REPO_ROOT"`:** ask whether to **`git pull`** — [Git pull before run](nightly-local-environment.md#git-pull-before-run-confirm-with-user).
 
 ## 1. SSH and Slurm
 
@@ -59,7 +60,7 @@ JOBID="<chosen_jobid>"
 srun --jobid="$JOBID" --overlap docker exec "<CONTAINER_NAME>" bash -lc '<INNER_CMD>'
 ```
 
-Nightly one-liner (adjust **`run_nightly_jobs.sh`** flags per [Test type and model filter](nightly-local-environment.md#run-nightly-jobs-test-type)):
+Nightly one-liner (adjust **`run_nightly_jobs.sh`** flags per [Test type and model filter](nightly-local-environment.md#run-nightly-jobs-test-type); insert **`git pull`** only after user confirms — [Git pull before run](nightly-local-environment.md#git-pull-before-run-confirm-with-user)):
 
 ```bash
 srun --jobid="$JOBID" --overlap docker exec "<CONTAINER_NAME>" bash -lc 'source /rebase/.venv/bin/activate && export REPO_ROOT="${REPO_ROOT:-/rebase/vllm-omni}" && export HF_HOME="/home/models/" && unset HF_HUB_CACHE && unset TRANSFORMERS_CACHE && export VLLM_ALLOW_LONG_MAX_MODEL_LEN="1" && cd "$REPO_ROOT" && bash tools/nightly/run_nightly_jobs.sh --test-type local'

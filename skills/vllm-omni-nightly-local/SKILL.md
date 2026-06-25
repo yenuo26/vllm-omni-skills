@@ -1,6 +1,6 @@
 ---
 name: vllm-omni-nightly-local
-description: **H200** or **H800** cluster nightly runs — confirm default **`REPO_ROOT`**, **`HF_HOME`**, **`CUDA_VISIBLE_DEVICES`** with user before run; then **`source /rebase/.venv/bin/activate`**, `run_nightly_jobs.sh` (optional **`--test-type local`**, **`--label-substr`**). Defaults: **`REPO_ROOT=/rebase/vllm-omni`**; H200 **`HF_HOME=/models/`**, **`CUDA_VISIBLE_DEVICES=0,1,2,3`**; H800 **`HF_HOME=/home/models/`**, GPU via **`nvidia-smi`** or explicit list. Use when user specifies H200/H800, local nightly jobs, or fetching nightly_jobs.
+description: **H200** or **H800** cluster nightly runs — confirm default **`REPO_ROOT`**, **`HF_HOME`**, **`CUDA_VISIBLE_DEVICES`** with user before run; after connect, **`cd "$REPO_ROOT"`** and **ask whether to `git pull`** before cases; then **`source /rebase/.venv/bin/activate`**, `run_nightly_jobs.sh` (optional **`--test-type local`**, **`--label-substr`**). Defaults: **`REPO_ROOT=/rebase/vllm-omni`**; H200 **`HF_HOME=/models/`**, **`CUDA_VISIBLE_DEVICES=0,1,2,3`**; H800 **`HF_HOME=/home/models/`**, GPU via **`nvidia-smi`** or explicit list. Use when user specifies H200/H800, local nightly jobs, or fetching nightly_jobs.
 ---
 
 # vLLM-Omni Nightly Local (cluster run & log sync)
@@ -8,7 +8,7 @@ description: **H200** or **H800** cluster nightly runs — confirm default **`RE
 ## Overview
 
 1. **Login** — **H200:** **`ssh`** → run in container shell (**no `docker exec`**). **H800:** **`ssh`** → Slurm → **`srun --overlap docker exec`**.
-2. **Run cases** — venv, HF / vLLM, **`CUDA_VISIBLE_DEVICES`**, then **`run_nightly_jobs.sh`** with the right **`--test-type` / `--label-substr`** — [Test run mode](#test-run-mode) and [references/nightly-local-environment.md](references/nightly-local-environment.md).
+2. **Run cases** — venv, HF / vLLM, **`CUDA_VISIBLE_DEVICES`**, **`cd "$REPO_ROOT"`**, **ask user → optional `git pull`**, then **`run_nightly_jobs.sh`** with the right **`--test-type` / `--label-substr`** — [Test run mode](#test-run-mode) and [references/nightly-local-environment.md](references/nightly-local-environment.md).
 3. **Sync logs** — [references/nightly-local-log-fetch.md](references/nightly-local-log-fetch.md).
 
 **HTML report:** [vllm-omni-test-report](../vllm-omni-test-report/SKILL.md) **`nightly_local_log_report.py --html-report …`**.
@@ -79,6 +79,7 @@ Examples: **`--label-substr Qwen`**, **`--label-substr Wan`**, **`--label-substr
 | **`REPO_ROOT`** | Default **`/rebase/vllm-omni`** — **confirm with user** | Same — **confirm with user** |
 | **`HF_HOME`** | Default **`/models/`** + unset caches — **confirm with user** | Default **`/home/models/`** + unset caches — **confirm with user** |
 | **`CUDA_VISIBLE_DEVICES`** | Default **`0,1,2,3`** — **confirm with user** | **`X`** → **`nvidia-smi`** pick, explicit list, or Slurm — **confirm with user** |
+| **Git pull before run** | **Ask after connect + `cd "$REPO_ROOT"`** — pull only if user confirms | Same |
 
 ---
 
@@ -124,7 +125,17 @@ Applies to **H200** (remote **`bash -lc`**) and **H800** (inside **`docker exec 
 
 2. **H200:** **`export CUDA_VISIBLE_DEVICES=…`** (confirmed value; default **`0,1,2,3`**) in the same shell (after venv + HF / vLLM). **H800:** apply confirmed strategy — explicit list, **`nvidia-smi`** pick for **`X`** GPUs, or omit export to use Slurm — [CUDA_VISIBLE_DEVICES](references/nightly-local-environment.md#cuda_visible_devices-empty-gpus).
 
-3. **`cd "$REPO_ROOT"`** and run **`run_nightly_jobs.sh`** per [Test run mode](#test-run-mode), e.g.:
+3. **`cd "$REPO_ROOT"`** (cluster checkout, default **`/rebase/vllm-omni`**).
+
+4. **Git pull (confirm first)** — after connect and **`cd`**, **ask the user** whether this run needs latest code. **Do not** run **`git pull`** until they confirm **yes** / **pull** / equivalent (unless they already said so in this thread). If yes:
+
+   ```bash
+   git pull
+   ```
+
+   If **`git pull`** fails (conflicts, auth), stop and resolve with the user before **`run_nightly_jobs.sh`**. If the user declines → skip pull and continue. Details: [references/nightly-local-environment.md](references/nightly-local-environment.md#git-pull-before-run-confirm-with-user).
+
+5. Run **`run_nightly_jobs.sh`** per [Test run mode](#test-run-mode), e.g.:
 
    ```bash
    # local test cases (user asked to run local)
@@ -145,7 +156,10 @@ srun --jobid="$JOBID" --overlap docker exec "$CONTAINER_NAME" bash -lc '
   unset TRANSFORMERS_CACHE
   export VLLM_ALLOW_LONG_MAX_MODEL_LEN="1"
   export CUDA_VISIBLE_DEVICES="0,1"
-  cd "$REPO_ROOT" && bash tools/nightly/run_nightly_jobs.sh
+  cd "$REPO_ROOT"
+  # Ask user: git pull? If yes:
+  # git pull
+  bash tools/nightly/run_nightly_jobs.sh
 '
 ```
 
@@ -166,9 +180,11 @@ srun --jobid="$JOBID" --overlap docker exec "$CONTAINER_NAME" bash -lc '
 1. Detect **H200** vs **H800**; if unclear, ask.
 2. Detect **test run mode**: **local** → **`--test-type local`**; **`<model>` local** → add **`--label-substr <model>`**; else default script with no extra flags.
 3. **Show and confirm run defaults** — display **`REPO_ROOT`**, **`HF_HOME`**, and **`CUDA_VISIBLE_DEVICES`** (or H800 GPU strategy) for the machine type (see [Confirm run defaults](references/nightly-local-environment.md#confirm-run-defaults-with-user)); wait for user **confirm / use defaults** or custom values **before** **`ssh`** or **`run_nightly_jobs.sh`**.
-4. Apply env: confirmed **`REPO_ROOT`**, **`HF_HOME`**, **`CUDA_VISIBLE_DEVICES`** (if applicable), **`unset HF_HUB_CACHE`** / **`unset TRANSFORMERS_CACHE`**.
-5. **Confirm laptop path defaults** — show **`REPO_ROOT=~/vllm-omni`** and **`KANBAN_REPO_ROOT=~/vllm-omni-kanban`** ([confirm-laptop-path-defaults](../vllm-omni-test-report/references/confirm-laptop-path-defaults.md)); wait for user **confirm / use defaults** or custom paths **before** sync / kanban prep / report.
-6. After the run finishes: **clear local `$REPO_ROOT/logs` and `$REPO_ROOT/tests/dfx/perf/results`**, then sync via [Log sync workflow](references/nightly-local-log-fetch.md#log-sync-workflow); run [kanban prep](../vllm-omni-test-report/references/kanban-pre-report-prep.md) **`prepare_kanban_before_report.py`**, then report via **vllm-omni-test-report**.
+4. **Connect**, apply env (**`source /rebase/.venv/bin/activate`**, confirmed **`REPO_ROOT`**, **`HF_HOME`**, **`CUDA_VISIBLE_DEVICES`**, **`unset HF_HUB_CACHE`** / **`unset TRANSFORMERS_CACHE`**), **`cd "$REPO_ROOT"`**.
+5. **Ask whether to `git pull`** in **`$REPO_ROOT`** for this run ([git pull before run](references/nightly-local-environment.md#git-pull-before-run-confirm-with-user)); run **`git pull`** only after user confirms.
+6. Run **`run_nightly_jobs.sh`** per [Test run mode](#test-run-mode).
+7. **Confirm laptop path defaults** — show **`REPO_ROOT=~/vllm-omni`** and **`KANBAN_REPO_ROOT=~/vllm-omni-kanban`** ([confirm-laptop-path-defaults](../vllm-omni-test-report/references/confirm-laptop-path-defaults.md)); wait for user **confirm / use defaults** or custom paths **before** sync / kanban prep / report.
+8. After the run finishes: **clear local `$REPO_ROOT/logs` and `$REPO_ROOT/tests/dfx/perf/results`**, then sync via [Log sync workflow](references/nightly-local-log-fetch.md#log-sync-workflow); run [kanban prep](../vllm-omni-test-report/references/kanban-pre-report-prep.md) **`prepare_kanban_before_report.py`**, then report via **vllm-omni-test-report**.
 
 ## References
 

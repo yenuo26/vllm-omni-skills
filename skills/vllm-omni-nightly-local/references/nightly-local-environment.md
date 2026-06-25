@@ -9,8 +9,45 @@
   export REPO_ROOT="${REPO_ROOT:-/rebase/vllm-omni}"
   ```
 
-- Use **`cd "$REPO_ROOT"`** before **`run_nightly_jobs.sh`**. Override only after the user declines the default or names another path (see [Confirm run defaults](#confirm-run-defaults-with-user)).
+- Use **`cd "$REPO_ROOT"`** before **`git pull`** (optional) and **`run_nightly_jobs.sh`**. Override only after the user declines the default or names another path (see [Confirm run defaults](#confirm-run-defaults-with-user)).
 - **Laptop sync / HTML report** use a **separate** local checkout path — see [nightly-local-log-fetch.md](nightly-local-log-fetch.md) (not **`/rebase/vllm-omni`** on your machine unless you mirror that layout).
+
+<a id="git-pull-before-run-confirm-with-user"></a>
+
+## Git pull before run (confirm with user)
+
+**After** connecting to the cluster (H200 SSH session or H800 **`docker exec`** shell) and **`cd "$REPO_ROOT"`**, **ask the user** whether this test run should pull the latest code **before** starting **`run_nightly_jobs.sh`**.
+
+**Do not** run **`git pull`** silently. Wait for **yes** / **pull** / **拉取** / equivalent (unless the user already said so in this thread).
+
+### Agent prompt template
+
+> Connected to the cluster and in **`$REPO_ROOT`** (`/rebase/vllm-omni` by default).
+> Should I run **`git pull`** to update the repo before starting the test cases? (yes / no)
+
+### If user confirms pull
+
+Run in the **same shell** (after **`source /rebase/.venv/bin/activate`** and env exports if already applied):
+
+```bash
+cd "$REPO_ROOT"
+git pull
+```
+
+- Pulls the **current branch** tracking remote (site default is usually **`main`**).
+- If **`git pull`** fails (merge conflicts, dirty tree, auth), **stop** — show the error and resolve with the user before **`run_nightly_jobs.sh`**.
+
+### If user declines
+
+Skip **`git pull`** and proceed to **`run_nightly_jobs.sh`** with the checkout as-is.
+
+### Order relative to other steps
+
+1. **`source /rebase/.venv/bin/activate`**
+2. Export confirmed **`REPO_ROOT`**, **`HF_HOME`**, **`CUDA_VISIBLE_DEVICES`** (if applicable), **`unset`** cache vars
+3. **`cd "$REPO_ROOT"`**
+4. **Ask → optional `git pull`** (this section)
+5. **`bash tools/nightly/run_nightly_jobs.sh`** …
 
 ## Python venv inside the container
 
@@ -136,7 +173,7 @@ export VLLM_ALLOW_LONG_MAX_MODEL_LEN="1"
 
 **Always after confirmed `HF_HOME`:** **`unset HF_HUB_CACHE`** / **`unset TRANSFORMERS_CACHE`** — so **`HF_HOME`** is not overridden by inherited cache paths.
 
-Apply confirmed env **before** **`cd "$REPO_ROOT" && bash tools/nightly/run_nightly_jobs.sh`**. (Ensure **`source /rebase/.venv/bin/activate`** has already run in that shell; see [Python venv inside the container](#python-venv-inside-the-container).)
+Apply confirmed env **before** **`cd "$REPO_ROOT"`**, optional **`git pull`** ([Git pull before run](#git-pull-before-run-confirm-with-user)), and **`bash tools/nightly/run_nightly_jobs.sh`**. (Ensure **`source /rebase/.venv/bin/activate`** has already run in that shell; see [Python venv inside the container](#python-venv-inside-the-container).)
 
 ## Default log location
 
@@ -220,7 +257,7 @@ echo "nightly jobs PID=$! log=$LOG"
 
 ### Test type and model filter
 
-After **`cd "$REPO_ROOT"`**, choose flags from user intent:
+After **`cd "$REPO_ROOT"`**, choose flags from user intent (run **`git pull`** first only if the user confirmed — [Git pull before run](#git-pull-before-run-confirm-with-user)):
 
 | User intent | Command |
 |-------------|---------|
